@@ -1,0 +1,304 @@
+#include "cansat_sd.hpp"
+#include <TinyGPS++.h>
+#include "MPU9250.h"
+
+CanSatSd *sd;
+
+static const bool ENABLE_GPS = true;
+
+static const int RXPin = 2;
+static const uint32_t GPSBaud = 9600;
+
+// The TinyGPS++ object
+TinyGPSPlus gps;
+
+// The serial connection to the GPS device
+HardwareSerial ss(RXPin);
+
+MPU9250 mpu;
+
+static const char* LOG_DIR = "/log";
+static const char* PREVIOUS_NUMBER_FILE = "/prev_log_number.txt";
+
+static const uint8_t button = 35; // スイッチと接続しているピン（35番ピン）
+
+// ゴールの緯度経度
+static const double GOAL_LAT = 35.682716, GOAL_LON = 139.759955;
+
+int current_log_number = 0;
+
+bool is_button_pressing = false;
+String log_filename = "";
+
+
+void setup() {
+  sd = new CanSatSd();
+  Serial.println("start");
+
+  if (ENABLE_GPS) {
+    ss.begin(GPSBaud);
+  }
+
+  Wire.begin();
+  delay(2000);
+
+  mpu.setup(0x68);
+
+  // キャリブレーション結果に値を変更してください
+  // mpu.setAccBias(0, 0, 0);
+  // mpu.setGyroBias(0, 0, 0);
+  // mpu.setMagBias(0, 0, 0);
+  // mpu.setMagScale(1, 1, 1);
+
+  // Madgwick filterを使う
+  mpu.selectFilter(QuatFilterSel::MADGWICK);
+
+  pinMode(button, INPUT); // スイッチを入力モードに設定
+
+  if (!sd->existDir(SD, LOG_DIR)) {
+    Serial.println("Creating LOG_DIR...");
+    sd->createDir(SD, LOG_DIR);
+  }
+  sd->listDir(SD, "/", 1);
+
+  int previous_number = sd->readFileInt(SD, PREVIOUS_NUMBER_FILE);
+  current_log_number = previous_number;
+  Serial.print("Previous log number: ");
+  Serial.println(previous_number);
+
+  createNewLogFile();
+}
+
+
+void loop()
+{
+  String log_filename = String(LOG_DIR);
+  log_filename += String("/");
+  log_filename += String(current_log_number);
+  log_filename += String(".txt");
+  const char* logfile = log_filename.c_str();
+
+  bool renew_log_file = false;
+
+  String buffer = "";
+
+  const unsigned long ms = 1000;
+  while (!renew_log_file) {
+    unsigned long start = millis();
+
+    while (!renew_log_file && millis() - start < ms) {
+      if (ENABLE_GPS) {
+        while (ss.available()) {
+          gps.encode(ss.read());
+        }
+      }
+
+      readMpu9250Value(buffer);
+
+      if (digitalRead(button)) {
+        // スイッチが押されていない
+        is_button_pressing = false;
+      } else {
+        // スイッチが押されている
+        if (!is_button_pressing) {
+          // スイッチが押されたときの1回目
+          is_button_pressing = true;
+          Serial.println("Create new log file");
+
+          createNewLogFile();
+          renew_log_file = true;
+        }
+      }
+    }
+
+    if (!renew_log_file && ENABLE_GPS) {
+      readGpsValue(buffer);
+    }
+    sd->appendFileString(SD, logfile, buffer);
+    buffer = String("");
+  }
+
+}
+
+static void createNewLogFile() {
+  current_log_number++;
+  sd->writeFileInt(SD, PREVIOUS_NUMBER_FILE, current_log_number);
+
+  Serial.print("Next number: ");
+  Serial.println(current_log_number);
+
+  log_filename = String(LOG_DIR);
+  log_filename += String("/");
+  log_filename += String(current_log_number);
+  log_filename += String(".txt");
+
+  String message = "";
+
+  if (ENABLE_GPS) {
+    message += String("GPS: Testing TinyGPS++ library v. ");
+    message += String(TinyGPSPlus::libraryVersion());
+    message += String("\n");
+    message += String("GPS: Sats,HDOP,Latitude,Longitude,Fix Age,Date,Time,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
+  }
+
+  message += String("MPU9250: Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ\n");
+  Serial.print(message);
+  sd->appendFileString(SD, log_filename.c_str(), message);
+}
+
+static void readMpu9250Value(String& buffer) {
+  String message = "MPU9250: ";
+
+  if (mpu.update()) {
+    message += String(mpu.getYaw(), 6);
+    message += String(",");
+    message += String(mpu.getPitch(), 6);
+    message += String(",");
+    message += String(mpu.getRoll(), 6);
+    message += String(",");
+
+    message += String(mpu.getAccX(), 6);
+    message += String(",");
+    message += String(mpu.getAccY(), 6);
+    message += String(",");
+    message += String(mpu.getAccZ(), 6);
+    message += String(",");
+    message += String(mpu.getGyroX(), 6);
+    message += String(",");
+    message += String(mpu.getGyroY(), 6);
+    message += String(",");
+    message += String(mpu.getGyroZ(), 6);
+    message += String(",");
+    message += String(mpu.getMagX(), 6);
+    message += String(",");
+    message += String(mpu.getMagY(), 6);
+    message += String(",");
+    message += String(mpu.getMagZ(), 6);
+    message += String(",");
+    message += String("\n");
+    Serial.print(message);
+    buffer += message;
+  }
+}
+
+void readGpsValue(String& buffer) {
+  String message = "GPS: ";
+
+  if (gps.satellites.isValid()) {
+    message += String(gps.satellites.value());
+  }
+  message += String(",");
+
+  if (gps.hdop.isValid()) {
+    message += String(gps.hdop.hdop(), 6);
+  }
+  message += String(",");
+
+  if (gps.hdop.isValid()) {
+    message += String(gps.hdop.hdop(), 6);
+  }
+  message += String(",");
+
+  if (gps.location.isValid()) {
+    message += String(gps.location.lat(), 6);
+  }
+  message += String(",");
+
+  if (gps.location.isValid()) {
+    message += String(gps.location.lng(), 6);
+  }
+  message += String(",");
+
+  if (gps.location.isValid()) {
+    message += String(gps.location.age());
+  }
+  message += String(",");
+
+  if (gps.date.isValid())
+  {
+    message += String(gps.date.year());
+    message += String("-");
+    message += String(gps.date.month());
+    message += String("-");
+    message += String(gps.date.day());
+    message += String("T");
+  }
+  if (gps.time.isValid())
+  {
+    message += String(gps.time.hour());
+    message += String(":");
+    message += String(gps.time.minute());
+    message += String(":");
+    message += String(gps.time.second());
+  }
+  message += String(",");
+
+  if (gps.date.isValid())
+  {
+    message += String(gps.date.age());
+  }
+  message += String(",");
+
+
+  if (gps.altitude.isValid()) {
+    message += String(gps.altitude.meters(), 6);
+  }
+  message += String(",");
+
+  if (gps.course.isValid()) {
+    message += String(gps.course.deg(), 6);
+  }
+  message += String(",");
+
+  if (gps.speed.isValid()) {
+    message += String(gps.speed.kmph(), 6);
+  }
+  message += String(",");
+
+  if (gps.course.isValid()) {
+    message += String(TinyGPSPlus::cardinal(gps.course.deg()));
+  }
+  message += String(",");
+
+  unsigned long distanceKmToGoal =
+    (unsigned long)TinyGPSPlus::distanceBetween(
+      gps.location.lat(),
+      gps.location.lng(),
+      GOAL_LAT,
+      GOAL_LON);
+
+  if (gps.location.isValid()) {
+    message += String(distanceKmToGoal, 6);
+  }
+  message += String(",");
+
+  double courseToGoal =
+    TinyGPSPlus::courseTo(
+      gps.location.lat(),
+      gps.location.lng(),
+      GOAL_LAT,
+      GOAL_LON);
+
+  if (gps.location.isValid()) {
+    message += String(courseToGoal, 6);
+  }
+  message += String(",");
+
+  const char *cardinalToGoal = TinyGPSPlus::cardinal(courseToGoal);
+
+  if (gps.location.isValid()) {
+    message += String(cardinalToGoal);
+  }
+  message += String(",");
+
+  message += String(gps.charsProcessed());
+  message += String(",");
+  message += String(gps.sentencesWithFix());
+  message += String(",");
+  message += String(gps.failedChecksum());
+  message += String(",");
+  message += String("\n");
+
+  Serial.print(message);
+  buffer += message;
+}
