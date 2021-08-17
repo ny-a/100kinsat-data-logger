@@ -1,6 +1,7 @@
 #include "cansat_sd.hpp"
 #include <TinyGPS++.h>
 #include "MPU9250.h"
+#include <cmath>
 
 static const bool ENABLE_GPS = true;
 
@@ -129,13 +130,16 @@ static void createNewLogFile() {
     message += String("GPS,Sats,HDOP,Latitude,Longitude,Fix Age,Date,Time,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
   }
 
-  message += String("MPU9250,Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ\n");
+  message += String("MPU9250,Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ,MyYaw\n");
   Serial.print(message);
   sd->appendFileString(SD, log_filename.c_str(), message);
 }
 
 static void readMpu9250Value(String& buffer) {
   String message = "MPU9250,";
+  double my_yaw = 0.0;
+  double mag_x = 0.0;
+  double mag_y = 0.0;
 
   if (mpu.update()) {
     message += String(mpu.getYaw(), 6);
@@ -157,11 +161,23 @@ static void readMpu9250Value(String& buffer) {
     message += String(",");
     message += String(mpu.getGyroZ(), 6);
     message += String(",");
-    message += String(mpu.getMagX(), 6);
+    mag_x = mpu.getMagX();
+    message += String(mag_x, 6);
     message += String(",");
-    message += String(mpu.getMagY(), 6);
+    mag_y = mpu.getMagY();
+    message += String(mag_y, 6);
     message += String(",");
     message += String(mpu.getMagZ(), 6);
+    message += String(",");
+
+    if (mag_x != 0.0 || mag_y != 0.0) {
+      my_yaw = std::acos(mag_y / std::sqrt(mag_x * mag_x + mag_y * mag_y)) / PI * 180;
+      if (mag_x < 0) {
+        my_yaw *= -1;
+      }
+    }
+    message += String(my_yaw, 6);
+
     message += String("\n");
     Serial.print(message);
     buffer += message;
