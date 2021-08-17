@@ -2,28 +2,26 @@
 #include <TinyGPS++.h>
 #include "MPU9250.h"
 
-CanSatSd *sd;
-
 static const bool ENABLE_GPS = true;
 
-static const int RXPin = 2;
-static const uint32_t GPSBaud = 9600;
-
-// The TinyGPS++ object
-TinyGPSPlus gps;
-
-// The serial connection to the GPS device
-HardwareSerial ss(RXPin);
-
-MPU9250 mpu;
+// ゴールの緯度経度
+static const double GOAL_LAT = 35.682716, GOAL_LON = 139.759955;
 
 static const char* LOG_DIR = "/log";
 static const char* PREVIOUS_NUMBER_FILE = "/prev_log_number.txt";
 
-static const uint8_t button = 35; // スイッチと接続しているピン（35番ピン）
+CanSatSd *sd;
 
-// ゴールの緯度経度
-static const double GOAL_LAT = 35.682716, GOAL_LON = 139.759955;
+static const int GPS_RX_Pin = 2;
+static const uint32_t GPSBaud = 9600;
+
+TinyGPSPlus gps;
+HardwareSerial ss(GPS_RX_Pin);
+
+MPU9250 mpu;
+
+static const uint8_t flight_pin = 34;
+static const uint8_t button = 35;
 
 int current_log_number = 0;
 
@@ -53,6 +51,7 @@ void setup() {
   // Madgwick filterを使う
   mpu.selectFilter(QuatFilterSel::MADGWICK);
 
+  pinMode(flight_pin, INPUT);
   pinMode(button, INPUT); // スイッチを入力モードに設定
 
   if (!sd->existDir(SD, LOG_DIR)) {
@@ -72,52 +71,41 @@ void setup() {
 
 void loop()
 {
-  String log_filename = String(LOG_DIR);
-  log_filename += String("/");
-  log_filename += String(current_log_number);
-  log_filename += String(".txt");
-  const char* logfile = log_filename.c_str();
-
   bool renew_log_file = false;
-
   String buffer = "";
 
   const unsigned long ms = 1000;
-  while (!renew_log_file) {
-    unsigned long start = millis();
+  unsigned long start = millis();
 
-    while (!renew_log_file && millis() - start < ms) {
-      if (ENABLE_GPS) {
-        while (ss.available()) {
-          gps.encode(ss.read());
-        }
-      }
-
-      readMpu9250Value(buffer);
-
-      if (digitalRead(button)) {
-        // スイッチが押されていない
-        is_button_pressing = false;
-      } else {
-        // スイッチが押されている
-        if (!is_button_pressing) {
-          // スイッチが押されたときの1回目
-          is_button_pressing = true;
-          Serial.println("Create new log file");
-
-          createNewLogFile();
-          renew_log_file = true;
-        }
+  while (!renew_log_file && millis() - start < ms) {
+    if (ENABLE_GPS) {
+      while (ss.available()) {
+        gps.encode(ss.read());
       }
     }
 
-    if (!renew_log_file && ENABLE_GPS) {
-      readGpsValue(buffer);
+    readMpu9250Value(buffer);
+
+    if (digitalRead(button)) {
+      // スイッチが押されていない
+      is_button_pressing = false;
+    } else {
+      // スイッチが押されている
+      if (!is_button_pressing) {
+        // スイッチが押されたときの1回目
+        is_button_pressing = true;
+        Serial.println("Create new log file");
+
+        createNewLogFile();
+        renew_log_file = true;
+      }
     }
-    sd->appendFileString(SD, logfile, buffer);
-    buffer = String("");
   }
 
+  if (!renew_log_file && ENABLE_GPS) {
+    readGpsValue(buffer);
+  }
+  sd->appendFileString(SD, log_filename.c_str(), buffer);
 }
 
 static void createNewLogFile() {
