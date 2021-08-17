@@ -6,7 +6,7 @@
 
 static const bool ENABLE_GPS = false;
 
-static const int TURN_SPEED = 32;
+static const int SPEED = 32;
 
 // ゴールの緯度経度
 static const double GOAL_LAT = 35.682716, GOAL_LON = 139.759955;
@@ -34,6 +34,8 @@ int current_log_number = 0;
 bool is_button_pressing = false;
 String log_filename = "";
 
+int speed_a = 0;
+int speed_b = 0;
 bool rotate_cw = true;
 
 void setup() {
@@ -82,9 +84,11 @@ void loop()
   String buffer = "";
 
   if (digitalRead(flight_pin)) {
-    motor.stop();
+    speed_a = 0;
+    speed_b = 0;
   } else {
-    motor.turn(rotate_cw, TURN_SPEED);
+    speed_a = SPEED * (rotate_cw ? 1 : -1);
+    speed_b = SPEED * (rotate_cw ? -1 : 1);
   }
 
   const unsigned long ms = 1000;
@@ -98,10 +102,6 @@ void loop()
     }
 
     readMpu9250Value(buffer);
-
-    if (digitalRead(flight_pin)) {
-      motor.stop();
-    }
 
     if (digitalRead(button)) {
       // スイッチが押されていない
@@ -117,9 +117,14 @@ void loop()
         renew_log_file = true;
 
         rotate_cw = !rotate_cw;
-        motor.stop();
       }
     }
+
+    if (digitalRead(flight_pin)) {
+      speed_a = 0;
+      speed_b = 0;
+    }
+    motor.move(speed_a, speed_b);
   }
 
   if (!renew_log_file && ENABLE_GPS) {
