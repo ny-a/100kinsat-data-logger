@@ -118,24 +118,24 @@ static void createNewLogFile() {
   log_filename = String(LOG_DIR);
   log_filename += String("/");
   log_filename += String(current_log_number);
-  log_filename += String(".txt");
+  log_filename += String(".csv");
 
   String message = "";
 
   if (ENABLE_GPS) {
-    message += String("GPS: Testing TinyGPS++ library v. ");
+    message += String("GPS,Testing TinyGPS++ library v. ");
     message += String(TinyGPSPlus::libraryVersion());
     message += String("\n");
-    message += String("GPS: Sats,HDOP,Latitude,Longitude,Fix Age,Date,Time,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
+    message += String("GPS,Sats,HDOP,Latitude,Longitude,Fix Age,Date,Time,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
   }
 
-  message += String("MPU9250: Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ\n");
+  message += String("MPU9250,Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ\n");
   Serial.print(message);
   sd->appendFileString(SD, log_filename.c_str(), message);
 }
 
 static void readMpu9250Value(String& buffer) {
-  String message = "MPU9250: ";
+  String message = "MPU9250,";
 
   if (mpu.update()) {
     message += String(mpu.getYaw(), 6);
@@ -162,7 +162,6 @@ static void readMpu9250Value(String& buffer) {
     message += String(mpu.getMagY(), 6);
     message += String(",");
     message += String(mpu.getMagZ(), 6);
-    message += String(",");
     message += String("\n");
     Serial.print(message);
     buffer += message;
@@ -170,7 +169,7 @@ static void readMpu9250Value(String& buffer) {
 }
 
 void readGpsValue(String& buffer) {
-  String message = "GPS: ";
+  String message = "GPS,";
 
   if (gps.satellites.isValid()) {
     message += String(gps.satellites.value());
@@ -284,7 +283,6 @@ void readGpsValue(String& buffer) {
   message += String(gps.sentencesWithFix());
   message += String(",");
   message += String(gps.failedChecksum());
-  message += String(",");
   message += String("\n");
 
   Serial.print(message);
