@@ -156,12 +156,15 @@ static void createNewLogFile() {
 
 static void readMpu9250Value(String& buffer) {
   String message = "MPU9250,";
+  double yaw = 0.0;
   double my_yaw = 0.0;
   double mag_x = 0.0;
   double mag_y = 0.0;
 
   if (mpu.update()) {
-    message += String(mpu.getYaw(), 6);
+    yaw = mpu.getYaw();
+    yaw += 180.0;
+    message += String(yaw, 6);
     message += String(",");
     message += String(mpu.getPitch(), 6);
     message += String(",");
@@ -194,6 +197,7 @@ static void readMpu9250Value(String& buffer) {
       if (mag_x < 0) {
         my_yaw *= -1;
       }
+      my_yaw += 180.0;
     }
     message += String(my_yaw, 6);
 
