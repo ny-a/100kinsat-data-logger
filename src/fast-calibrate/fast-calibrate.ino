@@ -14,6 +14,9 @@ static const double GOAL_LAT = 35.682716, GOAL_LON = 139.759955;
 
 static const int YAW_DIFF_THRESHOLD = 3;
 
+// 始めの向き
+double target_yaw = 0;
+
 static const char* LOG_DIR = "/log";
 static const char* PREVIOUS_NUMBER_FILE = "/prev_log_number.txt";
 
@@ -46,7 +49,6 @@ double yaw = 0.0;
 double pitch = 0.0;
 double roll = 0.0;
 double north_yaw = 0.0;
-double target_yaw = 90;
 
 void setup() {
   sd = new CanSatSd();
@@ -139,7 +141,7 @@ void loop()
       }
     }
 
-    readMpu9250Value(buffer, !REDUCE_MPU_LOG);
+    readMpu9250Value(buffer, REDUCE_MPU_LOG, false);
 
     if (digitalRead(button)) {
       // スイッチが押されていない
@@ -204,7 +206,7 @@ void loop()
   }
 
   if (REDUCE_MPU_LOG) {
-    readMpu9250Value(buffer, true);
+    readMpu9250Value(buffer, false, true);
   }
   if (!renew_log_file && ENABLE_GPS) {
     readGpsValue(buffer);
@@ -354,13 +356,13 @@ void createNewLogFile() {
   sd->appendFileString(SD, log_filename.c_str(), message);
 }
 
-void readMpu9250Value(String& buffer, bool log) {
+void readMpu9250Value(String& buffer, bool suppress_log, bool force_log) {
   String message = "MPU9250,";
   double my_yaw = 0.0;
   double mag_x = 0.0;
   double mag_y = 0.0;
 
-  if (log || mpu.update()) {
+  if (force_log || mpu.update()) {
     yaw = mpu.getYaw() + 180.0 - north_yaw;
     if (yaw < 0.0) {
       yaw += 360.0;
@@ -405,7 +407,7 @@ void readMpu9250Value(String& buffer, bool log) {
     message += String(my_yaw, 6);
 
     message += String("\n");
-    if (log) {
+    if (!suppress_log) {
       Serial.print(message);
       buffer += message;
     }
