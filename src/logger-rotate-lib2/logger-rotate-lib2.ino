@@ -4,7 +4,9 @@
 #include "motor.hpp"
 #include <cmath>
 
-static const bool ENABLE_GPS = false;
+static const bool ENABLE_GPS = true;
+static const bool ENABLE_MPU = false;
+static const bool ENABLE_MOTOR = false;
 
 static const int SPEED = 32;
 
@@ -46,19 +48,21 @@ void setup() {
     ss.begin(GPSBaud);
   }
 
-  Wire.begin();
-  delay(2000);
+  if (ENABLE_MPU) {
+    Wire.begin();
+    delay(2000);
 
-  mpu.setup(0x68);
+    mpu.setup(0x68);
 
-  // キャリブレーション結果に値を変更してください
-  // mpu.setAccBias(0, 0, 0);
-  // mpu.setGyroBias(0, 0, 0);
-  // mpu.setMagBias(0, 0, 0);
-  // mpu.setMagScale(1, 1, 1);
+    // キャリブレーション結果に値を変更してください
+    // mpu.setAccBias(0, 0, 0);
+    // mpu.setGyroBias(0, 0, 0);
+    // mpu.setMagBias(0, 0, 0);
+    // mpu.setMagScale(1, 1, 1);
 
-  // Madgwick filterを使う
-  mpu.selectFilter(QuatFilterSel::MADGWICK);
+    // Madgwick filterを使う
+    mpu.selectFilter(QuatFilterSel::MADGWICK);
+  }
 
   pinMode(flight_pin, INPUT);
   pinMode(button, INPUT); // スイッチを入力モードに設定
@@ -101,7 +105,9 @@ void loop()
       }
     }
 
-    readMpu9250Value(buffer);
+    if (ENABLE_MPU) {
+      readMpu9250Value(buffer);
+    }
 
     if (digitalRead(button)) {
       // スイッチが押されていない
@@ -124,7 +130,9 @@ void loop()
       speed_a = 0;
       speed_b = 0;
     }
-    motor.move(speed_a, speed_b);
+    if (ENABLE_MOTOR) {
+      motor.move(speed_a, speed_b);
+    }
   }
 
   if (!renew_log_file && ENABLE_GPS) {
@@ -133,7 +141,7 @@ void loop()
   sd->appendFileString(SD, log_filename.c_str(), buffer);
 }
 
-static void createNewLogFile() {
+void createNewLogFile() {
   current_log_number++;
   sd->writeFileInt(SD, PREVIOUS_NUMBER_FILE, current_log_number);
 
@@ -154,12 +162,15 @@ static void createNewLogFile() {
     message += String("GPS,Sats,HDOP,Latitude,Longitude,Fix Age,Date,Time,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
   }
 
-  message += String("MPU9250,Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ,MyYaw\n");
+  if (ENABLE_MPU) {
+    message += String("MPU9250,Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ,MyYaw\n");
+  }
+
   Serial.print(message);
   sd->appendFileString(SD, log_filename.c_str(), message);
 }
 
-static void readMpu9250Value(String& buffer) {
+void readMpu9250Value(String& buffer) {
   String message = "MPU9250,";
   double yaw = 0.0;
   double my_yaw = 0.0;
@@ -217,11 +228,6 @@ void readGpsValue(String& buffer) {
 
   if (gps.satellites.isValid()) {
     message += String(gps.satellites.value());
-  }
-  message += String(",");
-
-  if (gps.hdop.isValid()) {
-    message += String(gps.hdop.hdop(), 6);
   }
   message += String(",");
 
@@ -291,15 +297,15 @@ void readGpsValue(String& buffer) {
   }
   message += String(",");
 
-  unsigned long distanceKmToGoal =
-    (unsigned long)TinyGPSPlus::distanceBetween(
+  unsigned int distanceKmToGoal =
+    (unsigned int)TinyGPSPlus::distanceBetween(
       gps.location.lat(),
       gps.location.lng(),
       GOAL_LAT,
       GOAL_LON);
 
   if (gps.location.isValid()) {
-    message += String(distanceKmToGoal, 6);
+    message += String(distanceKmToGoal);
   }
   message += String(",");
 
