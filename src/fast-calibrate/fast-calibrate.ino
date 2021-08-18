@@ -165,6 +165,32 @@ void loop()
       }
     }
 
+    int diff = target_yaw - yaw;
+    if (diff < -180) {
+      diff += 360;
+    } else if (180 < diff) {
+      diff -= 360;
+    }
+    if (diff < -YAW_DIFF_THRESHOLD) {
+      digitalWrite(LED, LOW);
+      speed_a = SPEED + diff * 2;
+      if (speed_a < -256) {
+        speed_a = -256;
+      }
+      speed_b = SPEED;
+    } else if (YAW_DIFF_THRESHOLD < diff) {
+      digitalWrite(LED, LOW);
+      speed_a = SPEED;
+      speed_b = SPEED - diff * 2;
+      if (speed_b < -256) {
+        speed_b = -256;
+      }
+    } else {
+      digitalWrite(LED, HIGH);
+      speed_a = SPEED;
+      speed_b = SPEED;
+    }
+
     if (
       digitalRead(flight_pin) ||
       pitch < -70 ||
@@ -175,32 +201,6 @@ void loop()
       // フライトピンが抜かれるか、機体が横転したら止める
       speed_a = 0;
       speed_b = 0;
-    } else {
-      int diff = target_yaw - yaw;
-      if (diff < -180) {
-        diff += 360;
-      } else if (180 < diff) {
-        diff -= 360;
-      }
-      if (diff < -YAW_DIFF_THRESHOLD) {
-        digitalWrite(LED, LOW);
-        speed_a = SPEED + diff * 2;
-        if (speed_a < -256) {
-          speed_a = -256;
-        }
-        speed_b = SPEED;
-      } else if (YAW_DIFF_THRESHOLD < diff) {
-        digitalWrite(LED, LOW);
-        speed_a = SPEED;
-        speed_b = SPEED - diff * 2;
-        if (speed_b < -256) {
-          speed_b = -256;
-        }
-      } else {
-        digitalWrite(LED, HIGH);
-        speed_a = SPEED;
-        speed_b = SPEED;
-      }
     }
     motor.move(speed_a, speed_b);
   }
