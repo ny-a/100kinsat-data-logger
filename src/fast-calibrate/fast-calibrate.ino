@@ -1,202 +1,135 @@
-#include "cansat_sd.hpp"
-#include <TinyGPS++.h>
-#include "MPU9250.h"
-#include "motor.hpp"
+#include "./libraries/sd_log.hpp"
+#include "./libraries/motor.hpp"
+#include "./libraries/gps.hpp"
+#include "./libraries/imu.hpp"
+#include "./libraries/cansat_io.hpp"
 #include <cmath>
 
-static const bool ENABLE_GPS = true;
-static const bool REDUCE_MPU_LOG = false;
+// 設定
+#define ENABLE_GPS true
+#define REDUCE_MPU_LOG false
+#define SPEED 200
+#define YAW_DIFF_THRESHOLD 3.0
 
-static const int SPEED = 200;
+// 進む向き
+double targetYaw = 0;
 
-// ゴールの緯度経度
-static const double GOAL_LAT = 35.682716, GOAL_LON = 139.759955;
+SdLog sdLog;
+Motor motor;
+GPS gps;
+IMU imu;
+CanSatIO canSatIO;
 
-static const int YAW_DIFF_THRESHOLD = 3;
+QueueHandle_t queue;
 
-// 始めの向き
-double target_yaw = 0;
-
-static const char* LOG_DIR = "/log";
-static const char* PREVIOUS_NUMBER_FILE = "/prev_log_number.txt";
-
-CanSatSd *sd;
-
-static const int GPS_RX_Pin = 2;
-static const uint32_t GPSBaud = 9600;
-
-TinyGPSPlus gps;
-HardwareSerial ss(GPS_RX_Pin);
-
-MPU9250 mpu;
-
-Motor motor = Motor();
-
-#define LED 2
-static const uint8_t flight_pin = 34;
-static const uint8_t button = 35;
-
-int current_log_number = 0;
-
-bool is_button_pressing = false;
-String log_filename = "";
-
-int speed_a = 0;
-int speed_b = 0;
-bool rotate_cw = true;
-
-double yaw = 0.0;
-double pitch = 0.0;
-double roll = 0.0;
-double north_yaw = 0.0;
+#define QUEUE_BUFFER_SIZE 256
 
 void setup() {
-  sd = new CanSatSd();
+  Serial.begin(115200);
+  delay(100);
   Serial.println("start");
 
-  if (ENABLE_GPS) {
-    ss.begin(GPSBaud);
-  }
+  imu.setup();
 
-  Wire.begin();
-  delay(2000);
-
-  mpu.setup(0x68);
+  // ゴールの緯度経度
+  gps.setGoal(35.682716, 139.759955);
 
   // キャリブレーション結果に値を変更してください
-  // mpu.setAccBias(0, 0, 0);
-  // mpu.setGyroBias(0, 0, 0);
-  // mpu.setMagBias(0, 0, 0);
-  // mpu.setMagScale(1, 1, 1);
+  // imu.mpu.setAccBias(0, 0, 0);
+  // imu.mpu.setGyroBias(0, 0, 0);
+  // imu.mpu.setMagBias(0, 0, 0);
+  // imu.mpu.setMagScale(1, 1, 1);
 
   // Madgwick filterを使う
-  mpu.selectFilter(QuatFilterSel::MADGWICK);
+  imu.selectMadgwickFilter();
 
-  pinMode(LED, OUTPUT);
-  pinMode(flight_pin, INPUT);
-  pinMode(button, INPUT); // スイッチを入力モードに設定
-
-  if (!sd->existDir(SD, LOG_DIR)) {
-    Serial.println("Creating LOG_DIR...");
-    sd->createDir(SD, LOG_DIR);
-  }
-  sd->listDir(SD, "/", 1);
-
-  int previous_number = sd->readFileInt(SD, PREVIOUS_NUMBER_FILE);
-  current_log_number = previous_number;
-  Serial.print("Previous log number: ");
-  Serial.println(previous_number);
+  setupTask();
 
   createNewLogFile();
 
-  if (digitalRead(flight_pin)) {
+  if (!canSatIO.isFlightPinInserted()) {
     // フライトピンが抜けている
-    digitalWrite(LED, HIGH);
+    canSatIO.setLEDOn();
     Serial.println("Start Calibrate.");
+    // 1周くらい回って簡易的に地磁気センサーをキャリブレーションする
     fastCalibrate();
-    digitalWrite(LED, LOW);
+    canSatIO.setLEDOff();
 
     delay(1000);
+
+    // 15秒間ボタンが押されるのを待つので北を向けてボタンを押してください
+    calibrateNorth(15);
   }
-
-  digitalWrite(LED, HIGH);
-  while (digitalRead(button)) {
-    if (mpu.update()) {
-      north_yaw = mpu.getYaw() + 180.0;
-      Serial.println(north_yaw);
-    }
-  }
-  digitalWrite(LED, LOW);
-  is_button_pressing = true;
-
-  Serial.print("north_yaw: ");
-  Serial.println(north_yaw);
-
-  sd->appendFileString(SD, log_filename.c_str(), String("north_yaw: ") + String(north_yaw, 6) + String("\n"));
-
-  delay(1000);
 }
 
+void loop() {
+  int speed_a = 0;
+  int speed_b = 0;
 
-void loop()
-{
-  bool renew_log_file = false;
-  String buffer = "";
-
-  if (digitalRead(flight_pin)) {
-    speed_a = 0;
-    speed_b = 0;
-  } else {
+  if (canSatIO.isFlightPinInserted()) {
     speed_a = SPEED;
     speed_b = SPEED;
+  } else {
+    speed_a = 0;
+    speed_b = 0;
   }
 
   const unsigned long ms = 1000;
   unsigned long start = millis();
 
-  while (!renew_log_file && millis() - start < ms) {
+  while (millis() - start < ms) {
     if (ENABLE_GPS) {
-      while (ss.available()) {
-        gps.encode(ss.read());
-      }
+      gps.encode();
     }
 
-    readMpu9250Value(buffer, REDUCE_MPU_LOG, false);
-
-    if (digitalRead(button)) {
-      // スイッチが押されていない
-      is_button_pressing = false;
-    } else {
-      // スイッチが押されている
-      if (!is_button_pressing) {
-        // スイッチが押されたときの1回目
-        is_button_pressing = true;
-        Serial.println("Create new log file");
-
-        createNewLogFile();
-        renew_log_file = true;
-
-        // 反転させる
-        if (target_yaw == 0) {
-          target_yaw = 180;
-        } else {
-          target_yaw = 0;
-        }
-      }
+    if (imu.update() && !REDUCE_MPU_LOG) {
+      String buffer = "";
+      imu.getLogString(buffer);
+      sendToLoggerTask(buffer, true);
     }
 
-    int diff = target_yaw - yaw;
+    if (canSatIO.isButtonJustPressed()) {
+      // スイッチが押された
+      Serial.println("Create new log file");
+
+      sdLog.closeFile();
+      createNewLogFile();
+
+      // 反転させる
+      if (targetYaw == 0){
+        targetYaw = 180;
+      } else {
+        targetYaw = 0;
+      }
+
+      break;
+    }
+
+    // targetYaw に向ける
+    int diff = targetYaw - imu.yaw;
     if (diff < -180) {
       diff += 360;
     } else if (180 < diff) {
       diff -= 360;
     }
     if (diff < -YAW_DIFF_THRESHOLD) {
-      digitalWrite(LED, LOW);
-      speed_a = SPEED + diff * 2;
-      if (speed_a < -256) {
-        speed_a = -256;
-      }
+      canSatIO.setLEDOff();
+      speed_a = SPEED - std::abs(diff) * 2;
       speed_b = SPEED;
     } else if (YAW_DIFF_THRESHOLD < diff) {
-      digitalWrite(LED, LOW);
+      canSatIO.setLEDOff();
       speed_a = SPEED;
-      speed_b = SPEED - diff * 2;
-      if (speed_b < -256) {
-        speed_b = -256;
-      }
+      speed_b = SPEED - std::abs(diff) * 2;
     } else {
-      digitalWrite(LED, HIGH);
+      canSatIO.setLEDOn();
       speed_a = SPEED;
       speed_b = SPEED;
     }
 
     if (
-      digitalRead(flight_pin) ||
-      pitch < -70 ||
-      0 < pitch ||
-      roll < -45 ||
-      45 < roll
+      !canSatIO.isFlightPinInserted() ||
+      imu.roll < -45 ||
+      45 < imu.roll
     ) {
       // フライトピンが抜かれるか、機体が横転したら止める
       speed_a = 0;
@@ -206,328 +139,182 @@ void loop()
   }
 
   if (REDUCE_MPU_LOG) {
-    readMpu9250Value(buffer, false, true);
+    String buffer = "";
+    imu.getLogString(buffer);
+    sendToLoggerTask(buffer, true);
   }
-  if (!renew_log_file && ENABLE_GPS) {
-    readGpsValue(buffer);
+  if (ENABLE_GPS) {
+    String buffer = "";
+    gps.readValues(buffer);
+    sendToLoggerTask(buffer, false);
   }
-  sd->appendFileString(SD, log_filename.c_str(), buffer);
+}
+
+void sendToLoggerTask(String &buffer, bool skippable) {
+  BaseType_t status;
+
+  if (!skippable || uxQueueMessagesWaiting(queue) == 0) {
+    status = xQueueSend(queue, buffer.c_str(), 0);
+
+    // if (status != pdPASS) {
+    //   Serial.println("rtos queue send error");
+    // }
+  }
+}
+
+void setupTask() {
+  queue = xQueueCreate(64, QUEUE_BUFFER_SIZE);
+
+  if(queue != NULL) {
+    xTaskCreatePinnedToCore(loggerTask, "loggerTask", 4096, NULL, 1, NULL, 1);
+  } else {
+    Serial.println("rtos queue create error, stopped");
+    restartOnError();
+  }
+}
+
+void loggerTask(void *pvParameters) {
+  BaseType_t status;
+  int writeFailedCount = 0;
+  char buffer[QUEUE_BUFFER_SIZE];
+  const TickType_t tick = 500U; // [ms]
+
+  while (true) {
+    status = xQueueReceive(queue, buffer, tick);
+    if(status == pdPASS) {
+      Serial.print(buffer);
+      bool writeStatus = sdLog.writeLog(buffer);
+      if (writeStatus) {
+        writeFailedCount = 0;
+      } else {
+        writeFailedCount++;
+      }
+    } else {
+      if (uxQueueMessagesWaiting(queue) != 0) {
+        Serial.println("rtos queue receive error, stopped");
+        restartOnError();
+      }
+    }
+    if (10 < writeFailedCount) {
+      Serial.println("sd write failed, stopped");
+      restartOnError();
+    }
+  }
+}
+
+void restartOnError() {
+  for (int i = 0; i < 10; i++) {
+    canSatIO.setLEDOn();
+    delay(500);
+    canSatIO.setLEDOff();
+    delay(500);
+  }
+  Serial.println("Restarting...");
+  delay(100);
+  ESP.restart();
 }
 
 void fastCalibrate() {
-  speed_a = SPEED * (rotate_cw ? 1 : -1);
-  speed_b = SPEED * (rotate_cw ? -1 : 1);
-  motor.move(speed_a, speed_b);
+  motor.move(SPEED, -SPEED);
+
+  double some_small_value = -1000.0;
+  double some_big_value = 1000.0;
+
+  double mag_x_max = some_small_value;
+  double mag_x_min = some_big_value;
+  double mag_y_max = some_small_value;
+  double mag_y_min = some_big_value;
+  double mag_z_max = some_small_value;
+  double mag_z_min = some_big_value;
 
   const unsigned long ms = 10000;
   unsigned long start = millis();
 
-  double mag_x_max = 0.0;
-  double mag_x_min = 0.0;
-  double mag_y_max = 0.0;
-  double mag_y_min = 0.0;
-  double mag_z_max = 0.0;
-  double mag_z_min = 0.0;
-
   while (millis() - start < ms) {
-    if (mpu.update()) {
-      double mag_x = mpu.getMagX();
-      double mag_y = mpu.getMagY();
-      double mag_z = mpu.getMagZ();
-
-      if (mag_x_max < mag_x) {
-        mag_x_max = mag_x;
-      }
-      if (mag_x < mag_x_min) {
-        mag_x_min = mag_x;
-      }
-      if (mag_y_max < mag_y) {
-        mag_y_max = mag_y;
-      }
-      if (mag_y < mag_y_min) {
-        mag_y_min = mag_y;
-      }
-      if (mag_z_max < mag_z) {
-        mag_z_max = mag_z;
-      }
-      if (mag_z < mag_z_min) {
-        mag_z_min = mag_z;
-      }
+    if (imu.update()) {
+      mag_x_max = std::max(imu.magX, mag_x_max);
+      mag_x_min = std::min(imu.magX, mag_x_min);
+      mag_y_max = std::max(imu.magY, mag_y_max);
+      mag_y_min = std::min(imu.magY, mag_y_min);
+      mag_z_max = std::max(imu.magZ, mag_z_max);
+      mag_z_min = std::min(imu.magZ, mag_z_min);
     }
 
-
-    if (!digitalRead(flight_pin)) {
+    if (canSatIO.isFlightPinInserted()) {
       // フライトピンが刺されたら止める
-      speed_a = 0;
-      speed_b = 0;
-      motor.move(speed_a, speed_b);
+      break;
     }
   }
 
-  speed_a = 0;
-  speed_b = 0;
-  motor.move(speed_a, speed_b);
+  motor.stop();
 
   String message = "";
+  message += String("Calibrate,setMagBias(");
+  double magX = imu.mpu.getMagBiasX() + ((mag_x_max + mag_x_min) / 2);
+  message += String(magX, 6);
+  message += String(", ");
+  double magY = imu.mpu.getMagBiasY() + ((mag_y_max + mag_y_min) / 2);
+  message += String(magY, 6);
+  message += String(", ");
+  double magZ = imu.mpu.getMagBiasZ() + ((mag_z_max + mag_z_min) / 2);
+  message += String(magZ, 6);
+  message += String(");\n");
 
-  message += String("mag_x_max: ");
-  message += String(mag_x_max, 6);
-  message += String("\n");
-  message += String("mag_x_min: ");
-  message += String(mag_x_min, 6);
-  message += String("\n");
-  message += String("mag_x_middle: ");
-  double new_mag_x = mag_x_max - ((mag_x_max - mag_x_min) / 2);
-  message += String(new_mag_x, 6);
-  message += String("\n");
-  message += String("mag_x_old: ");
-  message += String(mpu.getMagBiasX(), 6);
-  message += String("\n");
-  message += String("mag_y_max: ");
-  message += String(mag_y_max, 6);
-  message += String("\n");
-  message += String("mag_y_min: ");
-  message += String(mag_y_min, 6);
-  message += String("\n");
-  message += String("mag_y_middle: ");
-  double new_mag_y = mag_y_max - ((mag_y_max - mag_y_min) / 2);
-  message += String(new_mag_y, 6);
-  message += String("\n");
-  message += String("mag_y_old: ");
-  message += String(mpu.getMagBiasY(), 6);
-  message += String("\n");
-  message += String("mag_z_max: ");
-  message += String(mag_z_max, 6);
-  message += String("\n");
-  message += String("mag_z_min: ");
-  message += String(mag_z_min, 6);
-  message += String("\n");
-  message += String("mag_z_middle: ");
-  double new_mag_z = mag_z_max - ((mag_z_max - mag_z_min) / 2);
-  message += String(new_mag_z, 6);
-  message += String("\n");
-  message += String("mag_z_old: ");
-  message += String(mpu.getMagBiasZ(), 6);
-  message += String("\n");
-  message += String("\n");
-  message += String("mag_x_new: ");
-  message += String(mpu.getMagBiasX() + new_mag_x, 6);
-  message += String("\n");
-  message += String("mag_y_new: ");
-  message += String(mpu.getMagBiasY() + new_mag_y, 6);
-  message += String("\n");
-  message += String("mag_z_new: ");
-  message += String(mpu.getMagBiasZ() + new_mag_z, 6);
-  message += String("\n");
+  sendToLoggerTask(message, false);
 
-  Serial.println(message);
-  sd->appendFileString(SD, log_filename.c_str(), message);
-
-  mpu.setMagBias(
-    mpu.getMagBiasX() + new_mag_x,
-    mpu.getMagBiasY() + new_mag_y,
-    mpu.getMagBiasZ() + new_mag_z
-  );
+  imu.mpu.setMagBias(magX, magY, magZ);
 }
 
 void createNewLogFile() {
-  current_log_number++;
-  sd->writeFileInt(SD, PREVIOUS_NUMBER_FILE, current_log_number);
+  int current_log_number = sdLog.openNextLogFile(SD);
 
   Serial.print("Next number: ");
   Serial.println(current_log_number);
 
-  log_filename = String(LOG_DIR);
-  log_filename += String("/");
-  log_filename += String(current_log_number);
-  log_filename += String(".csv");
-
   String message = "";
 
   if (ENABLE_GPS) {
-    message += String("GPS,Testing TinyGPS++ library v. ");
-    message += String(TinyGPSPlus::libraryVersion());
-    message += String("\n");
-    message += String("GPS,Sats,HDOP,Latitude,Longitude,Fix Age,Date,Time,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
+    gps.getHeader(message);
   }
 
-  message += String("MPU9250,Yaw,Pitch,Roll,AccelX,AccelY,AccelZ,GyroX,GyroY,GyroZ,MagX,MagY,MagZ,MyYaw\n");
-  Serial.print(message);
-  sd->appendFileString(SD, log_filename.c_str(), message);
+  imu.getHeader(message);
+
+  sendToLoggerTask(message, false);
 }
 
-void readMpu9250Value(String& buffer, bool suppress_log, bool force_log) {
-  String message = "MPU9250,";
-  double my_yaw = 0.0;
-  double mag_x = 0.0;
-  double mag_y = 0.0;
+void calibrateNorth(int timeoutSeconds) {
+  double northYaw = 0.0;
+  canSatIO.setLEDOn();
 
-  if (force_log || mpu.update()) {
-    yaw = mpu.getYaw() + 180.0 - north_yaw;
-    if (yaw < 0.0) {
-      yaw += 360.0;
+  const unsigned long ms = timeoutSeconds * 1000;
+  const unsigned long logIntervalMs = 100;
+  unsigned long start = millis();
+  unsigned long lastLogOutput = start;
+
+  int seconds = 0;
+  while (millis() - start < ms) {
+    if (imu.update()) {
+      // ここではログは吐かずに捨てる
+      String message = "";
+      imu.getLogString(message);
+      northYaw = imu.yaw;
     }
-    pitch = mpu.getPitch();
-    roll = mpu.getRoll();
-    message += String(yaw, 6);
-    message += String(",");
-    message += String(pitch, 6);
-    message += String(",");
-    message += String(roll, 6);
-    message += String(",");
-
-    message += String(mpu.getAccX(), 6);
-    message += String(",");
-    message += String(mpu.getAccY(), 6);
-    message += String(",");
-    message += String(mpu.getAccZ(), 6);
-    message += String(",");
-    message += String(mpu.getGyroX(), 6);
-    message += String(",");
-    message += String(mpu.getGyroY(), 6);
-    message += String(",");
-    message += String(mpu.getGyroZ(), 6);
-    message += String(",");
-    mag_x = mpu.getMagX();
-    message += String(mag_x, 6);
-    message += String(",");
-    mag_y = mpu.getMagY();
-    message += String(mag_y, 6);
-    message += String(",");
-    message += String(mpu.getMagZ(), 6);
-    message += String(",");
-
-    if (mag_x != 0.0 || mag_y != 0.0) {
-      my_yaw = std::acos(mag_y / std::sqrt(mag_x * mag_x + mag_y * mag_y)) / PI * 180;
-      if (mag_x < 0) {
-        my_yaw *= -1;
-      }
-      my_yaw += 180.0;
+    if (canSatIO.isButtonJustPressed()) {
+      break;
     }
-    message += String(my_yaw, 6);
-
-    message += String("\n");
-    if (!suppress_log) {
-      Serial.print(message);
-      buffer += message;
+    if (lastLogOutput < millis() - logIntervalMs) {
+      lastLogOutput = millis();
+      Serial.println(northYaw);
     }
   }
-}
+  canSatIO.setLEDOff();
+  imu.setNorthYaw(northYaw);
 
-void readGpsValue(String& buffer) {
-  String message = "GPS,";
-
-  if (gps.satellites.isValid()) {
-    message += String(gps.satellites.value());
-  }
-  message += String(",");
-
-  if (gps.hdop.isValid()) {
-    message += String(gps.hdop.hdop(), 6);
-  }
-  message += String(",");
-
-  if (gps.location.isValid()) {
-    message += String(gps.location.lat(), 6);
-  }
-  message += String(",");
-
-  if (gps.location.isValid()) {
-    message += String(gps.location.lng(), 6);
-  }
-  message += String(",");
-
-  if (gps.location.isValid()) {
-    message += String(gps.location.age());
-  }
-  message += String(",");
-
-  if (gps.date.isValid())
-  {
-    message += String(gps.date.year());
-    message += String("-");
-    message += String(gps.date.month());
-    message += String("-");
-    message += String(gps.date.day());
-    message += String("T");
-  }
-  if (gps.time.isValid())
-  {
-    message += String(gps.time.hour());
-    message += String(":");
-    message += String(gps.time.minute());
-    message += String(":");
-    message += String(gps.time.second());
-  }
-  message += String(",");
-
-  if (gps.date.isValid())
-  {
-    message += String(gps.date.age());
-  }
-  message += String(",");
-
-
-  if (gps.altitude.isValid()) {
-    message += String(gps.altitude.meters(), 6);
-  }
-  message += String(",");
-
-  if (gps.course.isValid()) {
-    message += String(gps.course.deg(), 6);
-  }
-  message += String(",");
-
-  if (gps.speed.isValid()) {
-    message += String(gps.speed.kmph(), 6);
-  }
-  message += String(",");
-
-  if (gps.course.isValid()) {
-    message += String(TinyGPSPlus::cardinal(gps.course.deg()));
-  }
-  message += String(",");
-
-  unsigned int distanceKmToGoal =
-    (unsigned int)TinyGPSPlus::distanceBetween(
-      gps.location.lat(),
-      gps.location.lng(),
-      GOAL_LAT,
-      GOAL_LON);
-
-  if (gps.location.isValid()) {
-    message += String(distanceKmToGoal, 6);
-  }
-  message += String(",");
-
-  double courseToGoal =
-    TinyGPSPlus::courseTo(
-      gps.location.lat(),
-      gps.location.lng(),
-      GOAL_LAT,
-      GOAL_LON);
-
-  if (gps.location.isValid()) {
-    message += String(courseToGoal, 6);
-    // ゴールへの方位に向ける
-    // target_yaw = courseToGoal;
-  }
-  message += String(",");
-
-  const char *cardinalToGoal = TinyGPSPlus::cardinal(courseToGoal);
-
-  if (gps.location.isValid()) {
-    message += String(cardinalToGoal);
-  }
-  message += String(",");
-
-  message += String(gps.charsProcessed());
-  message += String(",");
-  message += String(gps.sentencesWithFix());
-  message += String(",");
-  message += String(gps.failedChecksum());
+  String message = "northYaw: ";
+  message += String(northYaw, 6);
   message += String("\n");
 
-  Serial.print(message);
-  buffer += message;
+  sendToLoggerTask(message, false);
+
+  delay(1000);
 }
