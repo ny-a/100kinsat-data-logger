@@ -7,7 +7,7 @@
 
 // 設定
 #define ENABLE_GPS true
-#define REDUCE_MPU_LOG false
+#define REDUCE_MPU_LOG true
 #define SPEED 200
 #define YAW_DIFF_THRESHOLD 3.0
 
@@ -32,7 +32,7 @@ void setup() {
   imu.setup();
 
   // ゴールの緯度経度
-  gps.setGoal(35.682716, 139.759955);
+  gps.setGoal(31.5681451, 130.5434225);
 
   // キャリブレーション結果に値を変更してください
   // imu.mpu.setAccBias(0, 0, 0);
@@ -62,13 +62,15 @@ void setup() {
   }
 }
 
+int currentSpeed = SPEED;
+
 void loop() {
   int speed_a = 0;
   int speed_b = 0;
 
   if (canSatIO.isFlightPinInserted()) {
-    speed_a = SPEED;
-    speed_b = SPEED;
+    speed_a = currentSpeed;
+    speed_b = currentSpeed;
   } else {
     speed_a = 0;
     speed_b = 0;
@@ -95,13 +97,6 @@ void loop() {
       sdLog.closeFile();
       createNewLogFile();
 
-      // 反転させる
-      if (targetYaw == 0){
-        targetYaw = 180;
-      } else {
-        targetYaw = 0;
-      }
-
       break;
     }
 
@@ -114,16 +109,16 @@ void loop() {
     }
     if (diff < -YAW_DIFF_THRESHOLD) {
       canSatIO.setLEDOff();
-      speed_a = SPEED - std::abs(diff) * 2;
-      speed_b = SPEED;
+      speed_a = currentSpeed - std::abs(diff) * 2;
+      speed_b = currentSpeed;
     } else if (YAW_DIFF_THRESHOLD < diff) {
       canSatIO.setLEDOff();
-      speed_a = SPEED;
-      speed_b = SPEED - std::abs(diff) * 2;
+      speed_a = currentSpeed;
+      speed_b = currentSpeed - std::abs(diff) * 2;
     } else {
       canSatIO.setLEDOn();
-      speed_a = SPEED;
-      speed_b = SPEED;
+      speed_a = currentSpeed;
+      speed_b = currentSpeed;
     }
 
     if (
@@ -147,6 +142,15 @@ void loop() {
     String buffer = "";
     gps.readValues(buffer);
     sendToLoggerTask(buffer, false);
+    // ゴールの向きにtargetYawを設定
+    targetYaw = gps.courseToGoal;
+    if (gps.distanceToGoal < 1.0) {
+      currentSpeed = SPEED * 0.25;
+    } else if (gps.distanceToGoal < 3.0) {
+      currentSpeed = SPEED * 0.5;
+    } else {
+      currentSpeed = SPEED;
+    }
   }
 }
 
