@@ -294,9 +294,6 @@ void calibrateNorth(int timeoutSeconds) {
   int seconds = 0;
   while (millis() - start < ms) {
     if (imu.update()) {
-      // ここではログは吐かずに捨てる
-      String message = "";
-      imu.getLogString(message);
       northYaw = imu.yaw;
     }
     if (canSatIO.isButtonJustPressed()) {
