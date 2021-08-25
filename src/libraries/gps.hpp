@@ -18,6 +18,8 @@ class GPS {
     bool locationIsValid = false;
     double distanceToGoal = 0.0;
     double courseToGoal = 0.0;
+    double speedKmph = 0.0;
+    double course = 0.0;
 
     TinyGPSPlus gps;
 
@@ -138,12 +140,14 @@ void GPS::readValues(String& buffer) {
   buffer += String(",");
 
   if (gps.course.isValid()) {
-    buffer += String(gps.course.deg(), 6);
+    course = gps.course.deg();
+    buffer += String(course, 6);
   }
   buffer += String(",");
 
   if (gps.speed.isValid()) {
-    buffer += String(gps.speed.kmph(), 6);
+    speedKmph = gps.speed.kmph();
+    buffer += String(speedKmph, 6);
   }
   buffer += String(",");
 
