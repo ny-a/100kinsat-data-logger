@@ -74,7 +74,7 @@ void loop() {
     speed_b = 0;
   }
 
-  const unsigned long ms = 1000;
+  const unsigned long ms = 100;
   unsigned long start = millis();
 
   while (millis() - start < ms) {

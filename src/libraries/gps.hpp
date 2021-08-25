@@ -3,7 +3,7 @@
 #include <TinyGPS++.h>
 
 #define GPS_RX_PIN 2
-#define GPS_BAUD 9600
+#define GPS_DEFAULT_BAUD 9600
 
 class GPS {
   public:
@@ -29,7 +29,14 @@ class GPS {
 
 GPS::GPS() {
   ss = new HardwareSerial(GPS_RX_PIN);
-  ss->begin(GPS_BAUD);
+  ss->begin(GPS_DEFAULT_BAUD);
+  ss->write("$PMTK251,115200*1F\r\n");
+  ss->updateBaudRate(115200);
+  ss->flush();
+  ss->write("$PMTK300,100,0,0,0,0*2C\r\n");
+  ss->write("$PMTK220,100*2F\r\n");
+  ss->write("$PMTK314,1,1,1,1,1,5,0,0,0,0,0,0,0,0,0,0,0,0,0*2C\r\n");
+  ss->flush();
 }
 
 void GPS::setGoal(double lat, double lng) {
