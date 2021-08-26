@@ -79,6 +79,7 @@ void LogTask::loggerTask(void *pvParameters) {
       if (writeStatus) {
         writeFailedCount = 0;
       } else {
+        Serial.println("SD append failed.");
         writeFailedCount++;
       }
 

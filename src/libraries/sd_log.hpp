@@ -83,7 +83,14 @@ bool SdLog::writeLog(const char * message) {
   if (!file) {
     return false;
   }
-  return file.print(message) != 0;
+  if (message[0] == '\x00') {
+    return true;
+  }
+  bool result = file.print(message) != 0;
+  if (!result) {
+    file.close();
+  }
+  return result;
 }
 
 int SdLog::openNextLogFile(fs::FS &fs) {
