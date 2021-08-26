@@ -12,6 +12,7 @@ class IMU {
     bool update();
     void getLogString(String& buffer);
     void setNorthYaw(double value);
+    bool checkValue(int limit);
 
     MPU9250 mpu;
 
@@ -109,4 +110,20 @@ void IMU::getLogString(String& buffer) {
 
 void IMU::setNorthYaw(double value) {
   northYaw = value;
+}
+
+bool IMU::checkValue(int limit) {
+  unsigned long ms = 100;
+  for (int i = 0; i < limit; i++) {
+    unsigned long start = millis();
+    while (!update() && millis() - start < ms) {}
+    if (
+      magX != 0.0 ||
+      magY != 0.0 ||
+      magZ != 0.0
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

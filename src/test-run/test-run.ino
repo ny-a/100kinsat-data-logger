@@ -45,6 +45,12 @@ void setup() {
 
   createNewLogFile();
 
+  if (!imu.checkValue(5)) {
+    String buffer = "IMU initialization failed.";
+    logTask.sendToLoggerTask(buffer, false);
+    logTask.restartOnError();
+  }
+
   if (!canSatIO.isFlightPinInserted()) {
     // フライトピンが抜けている
     canSatIO.setLEDOn();
