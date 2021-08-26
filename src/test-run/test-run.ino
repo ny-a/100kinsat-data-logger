@@ -3,6 +3,7 @@
 #include "./libraries/gps.hpp"
 #include "./libraries/imu.hpp"
 #include "./libraries/cansat_io.hpp"
+#include "./libraries/log_task.hpp"
 #include <cmath>
 
 // 設定
@@ -19,10 +20,7 @@ Motor motor;
 GPS gps;
 IMU imu;
 CanSatIO canSatIO;
-
-QueueHandle_t queue;
-
-#define QUEUE_BUFFER_SIZE 256
+LogTask logTask(&sdLog, &canSatIO);
 
 void setup() {
   Serial.begin(115200);
@@ -43,7 +41,7 @@ void setup() {
   // Madgwick filterを使う
   imu.selectMadgwickFilter();
 
-  setupTask();
+  logTask.setupTask();
 
   createNewLogFile();
 
@@ -87,7 +85,7 @@ void loop() {
     if (imu.update() && !REDUCE_MPU_LOG) {
       String buffer = "";
       imu.getLogString(buffer);
-      sendToLoggerTask(buffer, true);
+      logTask.sendToLoggerTask(buffer, true);
     }
 
     if (canSatIO.isButtonJustPressed()) {
@@ -136,12 +134,12 @@ void loop() {
   if (REDUCE_MPU_LOG) {
     String buffer = "";
     imu.getLogString(buffer);
-    sendToLoggerTask(buffer, true);
+    logTask.sendToLoggerTask(buffer, true);
   }
   if (ENABLE_GPS) {
     String buffer = "";
     gps.readValues(buffer);
-    sendToLoggerTask(buffer, false);
+    logTask.sendToLoggerTask(buffer, false);
     // ゴールの向きにtargetYawを設定
     targetYaw = gps.courseToGoal;
     if (gps.distanceToGoal < 1.0) {
@@ -152,70 +150,6 @@ void loop() {
       currentSpeed = SPEED;
     }
   }
-}
-
-void sendToLoggerTask(String &buffer, bool skippable) {
-  BaseType_t status;
-
-  if (!skippable || uxQueueMessagesWaiting(queue) == 0) {
-    status = xQueueSend(queue, buffer.c_str(), 0);
-
-    // if (status != pdPASS) {
-    //   Serial.println("rtos queue send error");
-    // }
-  }
-}
-
-void setupTask() {
-  queue = xQueueCreate(64, QUEUE_BUFFER_SIZE);
-
-  if(queue != NULL) {
-    xTaskCreatePinnedToCore(loggerTask, "loggerTask", 4096, NULL, 1, NULL, 1);
-  } else {
-    Serial.println("rtos queue create error, stopped");
-    restartOnError();
-  }
-}
-
-void loggerTask(void *pvParameters) {
-  BaseType_t status;
-  int writeFailedCount = 0;
-  char buffer[QUEUE_BUFFER_SIZE];
-  const TickType_t tick = 500U; // [ms]
-
-  while (true) {
-    status = xQueueReceive(queue, buffer, tick);
-    if(status == pdPASS) {
-      Serial.print(buffer);
-      bool writeStatus = sdLog.writeLog(buffer);
-      if (writeStatus) {
-        writeFailedCount = 0;
-      } else {
-        writeFailedCount++;
-      }
-    } else {
-      if (uxQueueMessagesWaiting(queue) != 0) {
-        Serial.println("rtos queue receive error, stopped");
-        restartOnError();
-      }
-    }
-    if (10 < writeFailedCount) {
-      Serial.println("sd write failed, stopped");
-      restartOnError();
-    }
-  }
-}
-
-void restartOnError() {
-  for (int i = 0; i < 10; i++) {
-    canSatIO.setLEDOn();
-    delay(500);
-    canSatIO.setLEDOff();
-    delay(500);
-  }
-  Serial.println("Restarting...");
-  delay(100);
-  ESP.restart();
 }
 
 void fastCalibrate() {
@@ -264,7 +198,7 @@ void fastCalibrate() {
   message += String(magZ, 6);
   message += String(");\n");
 
-  sendToLoggerTask(message, false);
+  logTask.sendToLoggerTask(message, false);
 
   imu.mpu.setMagBias(magX, magY, magZ);
 }
@@ -283,7 +217,7 @@ void createNewLogFile() {
 
   imu.getHeader(message);
 
-  sendToLoggerTask(message, false);
+  logTask.sendToLoggerTask(message, false);
 }
 
 void calibrateNorth(int timeoutSeconds) {
@@ -315,7 +249,7 @@ void calibrateNorth(int timeoutSeconds) {
   message += String(northYaw, 6);
   message += String("\n");
 
-  sendToLoggerTask(message, false);
+  logTask.sendToLoggerTask(message, false);
 
   delay(1000);
 }
