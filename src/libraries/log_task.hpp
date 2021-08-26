@@ -3,7 +3,18 @@
 #include "sd_log.hpp"
 #include "cansat_io.hpp"
 
+// WebServer の有効化
+#define ENABLE_WEB_SERVER false
+
+#if ENABLE_WEB_SERVER == true
+#include "web_controller.hpp"
+#endif
+
 #define QUEUE_BUFFER_SIZE 256
+
+// WebServer 用 WiFi AP の接続情報
+#define WIFI_SSID "Espressif-32CS"
+#define WIFI_PASS "oOxzAnmt"
 
 class LogTask {
   public:
@@ -56,6 +67,10 @@ void LogTask::loggerTask(void *pvParameters) {
   char buffer[QUEUE_BUFFER_SIZE];
   const TickType_t tick = 10U; // [ms]
 
+  #if ENABLE_WEB_SERVER == true
+  WebController webController(WIFI_SSID, WIFI_PASS);
+  #endif
+
   while (true) {
     status = xQueueReceive(thisPointer->queue, buffer, tick);
     if(status == pdPASS) {
@@ -66,6 +81,15 @@ void LogTask::loggerTask(void *pvParameters) {
       } else {
         writeFailedCount++;
       }
+
+      #if ENABLE_WEB_SERVER == true
+      if (buffer[0] == 'G') {
+        webController.setValue(0, buffer);
+      }
+      if (buffer[0] == 'M') {
+        webController.setValue(1, buffer);
+      }
+      #endif
     } else {
       if (uxQueueMessagesWaiting(thisPointer->queue) != 0) {
         Serial.println("rtos queue receive error?");
@@ -75,6 +99,10 @@ void LogTask::loggerTask(void *pvParameters) {
       Serial.println("sd write failed, stopped");
       thisPointer->restartOnError();
     }
+
+    #if ENABLE_WEB_SERVER == true
+    webController.handleClient();
+    #endif
   }
 }
 
