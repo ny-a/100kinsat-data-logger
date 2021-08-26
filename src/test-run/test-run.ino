@@ -215,12 +215,13 @@ void createNewLogFile() {
   Serial.print("Next number: ");
   Serial.println(current_log_number);
 
-  String message = "";
-
   if (ENABLE_GPS) {
+    String message = "";
     gps.getHeader(message);
+    logTask.sendToLoggerTask(message, false);
   }
 
+  String message = "";
   imu.getHeader(message);
 
   logTask.sendToLoggerTask(message, false);
