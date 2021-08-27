@@ -20,6 +20,7 @@ class LogTask {
   public:
     LogTask(SdLog * sdLog, CanSatIO * canSatIO);
     void sendToLoggerTask(String &buffer, bool skippable);
+    void sendToLoggerTask(const char * buffer, bool skippable);
     void setupTask();
     void restartOnError();
     void restartOnError(int blinkCount);
@@ -39,10 +40,14 @@ LogTask::LogTask(SdLog * sdLog, CanSatIO * canSatIO) {
 }
 
 void LogTask::sendToLoggerTask(String &buffer, bool skippable) {
+  sendToLoggerTask(buffer.c_str(), skippable);
+}
+
+void LogTask::sendToLoggerTask(const char * buffer, bool skippable) {
   BaseType_t status;
 
   if (!skippable || uxQueueMessagesWaiting(queue) == 0) {
-    status = xQueueSend(queue, buffer.c_str(), 0);
+    status = xQueueSend(queue, buffer, 0);
 
     if (status != pdPASS) {
       Serial.println("rtos queue send failed");
