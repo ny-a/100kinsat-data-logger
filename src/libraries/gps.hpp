@@ -4,11 +4,13 @@
 
 #define GPS_RX_PIN 2
 #define GPS_DEFAULT_BAUD 9600
+#define GPS_DEBUG false
 
 class GPS {
   public:
     GPS();
 
+    bool changeUpdateInterval();
     void setGoal(double lat, double lng);
     void encode();
     void getHeader(String& buffer);
@@ -27,18 +29,101 @@ class GPS {
     HardwareSerial *ss;
     double goalLat = 0.0;
     double goalLong = 0.0;
+
+    void debugWrite(char message);
+    void debugPrintln(const char * message);
 };
 
 GPS::GPS() {
   ss = new HardwareSerial(GPS_RX_PIN);
   ss->begin(GPS_DEFAULT_BAUD);
+}
+
+bool GPS::changeUpdateInterval() {
+  for (unsigned long start = millis(); millis() - start < 500;) {
+    while (ss->available()) {
+      ss->read();
+    }
+    delay(1);
+  }
+  bool seems_ok = false;
+  for (int i = 0; !seems_ok && i < 4; i++) {
+    debugPrintln("GPS,101");
+    ss->write("$PMTK101*32\r\n");
+    ss->flush();
+    unsigned long start = millis();
+    while (!seems_ok && millis() - start < 500) {
+      while (ss->available()){
+        ss->read();
+        seems_ok = true;
+      }
+      delay(1);
+    }
+  }
+  for (unsigned long start = millis(); millis() - start < 1000;) {
+    while (ss->available()) {
+      ss->read();
+    }
+    delay(1);
+  }
+  debugPrintln("GPS,251");
   ss->write("$PMTK251,115200*1F\r\n");
+  ss->flush();
+  debugPrintln("GPS,115200");
   ss->updateBaudRate(115200);
+  for (unsigned long start = millis(); millis() - start < 500;) {
+    while (ss->available()) {
+      ss->read();
+    }
+    delay(1);
+  }
+  seems_ok = false;
+  for (int i = 0; !seems_ok && i < 5; i++) {
+    debugPrintln("GPS,101");
+    ss->write("$PMTK101*32\r\n");
+    ss->flush();
+    unsigned long start = millis();
+    while (!seems_ok && millis() - start < 500) {
+      while (ss->available()){
+        ss->read();
+        seems_ok = true;
+      }
+      delay(1);
+    }
+  }
+  for (unsigned long start = millis(); millis() - start < 1000;) {
+    while (ss->available()) {
+      ss->read();
+    }
+    delay(1);
+  }
+  debugPrintln("GPS,225");
+  ss->write("$PMTK225,0*2B\r\n");
+  ss->write("$PMTK220,200*2C\r\n");
+  ss->write("$PMTK300,200,0,0,0,0*2F\r\n");
+  ss->write("$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n");
   ss->flush();
-  ss->write("$PMTK300,100,0,0,0,0*2C\r\n");
-  ss->write("$PMTK220,100*2F\r\n");
-  ss->write("$PMTK314,10,1,10,1,10,10,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n");
-  ss->flush();
+  const char* pmtk001 = "$PMTK001,314,3*36";
+  seems_ok = false;
+  int pos = 0;
+  unsigned long start = millis();
+  unsigned long ms = 3000;
+  while (!seems_ok && millis() - start < ms) {
+    char readValue = ss->read();
+    delay(1);
+    if (readValue == pmtk001[pos]) {
+      pos++;
+    } else {
+      pos = 0;
+    }
+    if (pos == 17) {
+      debugPrintln("GPS,pmtk001");
+      seems_ok = true;
+    }
+    delay(1);
+  }
+  debugPrintln("GPS,setup end");
+  return seems_ok;
 }
 
 void GPS::setGoal(double lat, double lng) {
@@ -195,3 +280,8 @@ void GPS::readValues(String& buffer) {
   buffer += String("\n");
 }
 
+void GPS::debugPrintln(const char * message) {
+  #if GPS_DEBUG == true
+  Serial.println(message);
+  #endif
+}
