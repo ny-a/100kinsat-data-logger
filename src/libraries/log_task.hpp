@@ -22,6 +22,7 @@ class LogTask {
     void sendToLoggerTask(String &buffer, bool skippable);
     void setupTask();
     void restartOnError();
+    void restartOnError(int blinkCount);
 
     QueueHandle_t queue;
     SdLog * sdLog;
@@ -108,13 +109,19 @@ void LogTask::loggerTask(void *pvParameters) {
 }
 
 void LogTask::restartOnError() {
+  restartOnError(10);
+}
+
+void LogTask::restartOnError(int blinkCount) {
   unsigned long start = millis();
   unsigned long lastChanged = 0;
   bool isLEDOn = false;
-  while (millis() - start < 5 * 1000) {
+  int i = 0;
+  while (i < blinkCount * 2) {
     if (200 < millis() - lastChanged) {
       lastChanged = millis();
       isLEDOn = !isLEDOn;
+      i++;
     }
     if (isLEDOn) {
       canSatIO->setLEDOn();
