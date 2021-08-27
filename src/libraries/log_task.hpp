@@ -10,6 +10,7 @@
 #include "web_controller.hpp"
 #endif
 
+#define SD_BUFFER_COUNT 128
 #define QUEUE_BUFFER_SIZE 256
 
 // WebServer 用 WiFi AP の接続情報
@@ -27,6 +28,10 @@ class LogTask {
 
     QueueHandle_t queue;
     SdLog * sdLog;
+    char sdBuffer[SD_BUFFER_COUNT + 8][QUEUE_BUFFER_SIZE];
+    int sdBufferPosition = 0;
+    unsigned long sdLastWrite = 0;
+    unsigned long sdWriteInterval = 2000;
 
   private:
     static void loggerTask(void *pvParameters);
@@ -81,13 +86,8 @@ void LogTask::loggerTask(void *pvParameters) {
     status = xQueueReceive(thisPointer->queue, buffer, tick);
     if(status == pdPASS) {
       Serial.print(buffer);
-      bool writeStatus = thisPointer->sdLog->writeLog(buffer);
-      if (writeStatus) {
-        writeFailedCount = 0;
-      } else {
-        Serial.println("SD append failed.");
-        writeFailedCount++;
-      }
+      strcpy(buffer, thisPointer->sdBuffer[thisPointer->sdBufferPosition]);
+      thisPointer->sdBufferPosition++;
 
       #if ENABLE_WEB_SERVER == true
       if (buffer[0] == 'G') {
@@ -105,6 +105,26 @@ void LogTask::loggerTask(void *pvParameters) {
     if (10 < writeFailedCount) {
       Serial.println("sd write failed, stopped");
       thisPointer->restartOnError();
+    }
+
+    if (0 < thisPointer->sdBufferPosition) {
+      unsigned long now = millis();
+      if (
+        SD_BUFFER_COUNT < thisPointer->sdBufferPosition ||
+        thisPointer->sdWriteInterval < now - thisPointer->sdLastWrite
+      ) {
+        for (int i = 0; i < thisPointer->sdBufferPosition; i++) {
+          bool writeStatus = thisPointer->sdLog->writeLog(thisPointer->sdBuffer[i]);
+          if (writeStatus) {
+            writeFailedCount = 0;
+          } else {
+            Serial.println("SD append failed.");
+            writeFailedCount++;
+          }
+        }
+        thisPointer->sdBufferPosition = 0;
+        thisPointer->sdLastWrite = now;
+      }
     }
 
     #if ENABLE_WEB_SERVER == true
