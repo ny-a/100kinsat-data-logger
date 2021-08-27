@@ -45,16 +45,23 @@ void setup() {
 
   createNewLogFile();
 
-  if (!imu.checkValue(5)) {
-    String buffer = "IMU initialization failed.";
-    logTask.sendToLoggerTask(buffer, false);
-    logTask.restartOnError();
+  logTask.sendToLoggerTask("GPS check.\n", false);
+  if (!gps.changeUpdateInterval()) {
+    logTask.sendToLoggerTask("GPS initialization failed.\n", false);
+    logTask.restartOnError(4);
   }
+  logTask.sendToLoggerTask("GPS OK.\n", false);
+
+  if (!imu.checkValue(5)) {
+    logTask.sendToLoggerTask("IMU initialization failed.\n", false);
+    logTask.restartOnError(5);
+  }
+  logTask.sendToLoggerTask("IMU OK.\n", false);
 
   if (!canSatIO.isFlightPinInserted()) {
     // フライトピンが抜けている
     canSatIO.setLEDOn();
-    Serial.println("Start Calibrate.");
+    logTask.sendToLoggerTask("Start Calibrate.\n", false);
     // 1周くらい回って簡易的に地磁気センサーをキャリブレーションする
     fastCalibrate();
     canSatIO.setLEDOff();
@@ -64,6 +71,8 @@ void setup() {
     // 15秒間ボタンが押されるのを待つので北を向けてボタンを押してください
     calibrateNorth(15);
   }
+
+  logTask.sendToLoggerTask("setup ended.\n", false);
 }
 
 int currentSpeed = SPEED;
