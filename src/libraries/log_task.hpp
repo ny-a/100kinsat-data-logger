@@ -6,7 +6,7 @@
 #include "FS.h"
 
 // WebServer の有効化
-#define ENABLE_WEB_SERVER false
+#define ENABLE_WEB_SERVER true
 
 #if ENABLE_WEB_SERVER == true
 #include "web_controller.hpp"
@@ -24,11 +24,12 @@ class LogTask {
     LogTask(SdLog * sdLog, CanSatIO * canSatIO, State * state);
     void sendToLoggerTask(String &buffer, bool skippable);
     void sendToLoggerTask(const char * buffer, bool skippable);
-    void setupTask();
+    bool setupTask();
     void restartOnError();
     void restartOnError(int blinkCount);
     int openNextLogFile(fs::FS &fs);
     void closeFile();
+    bool checkSdHealth();
 
     QueueHandle_t queue;
     SdLog * sdLog;
@@ -39,9 +40,12 @@ class LogTask {
     unsigned long sdWriteInterval = 2000;
     bool requestClose = false;
     bool blockSdWrite = false;
+    bool requestFlush = false;
+    int writeFailedCount = 0;
 
   private:
     static void loggerTask(void *pvParameters);
+    void flushFile();
 
     CanSatIO * canSatIO;
 };
@@ -57,6 +61,9 @@ void LogTask::sendToLoggerTask(String &buffer, bool skippable) {
 }
 
 void LogTask::sendToLoggerTask(const char * buffer, bool skippable) {
+  if (buffer[0] == '\x00') {
+    return;
+  }
   BaseType_t status;
 
   Serial.print(buffer);
@@ -70,21 +77,21 @@ void LogTask::sendToLoggerTask(const char * buffer, bool skippable) {
   }
 }
 
-void LogTask::setupTask() {
+bool LogTask::setupTask() {
   queue = xQueueCreate(64, QUEUE_BUFFER_SIZE);
 
   if(queue != NULL) {
     xTaskCreatePinnedToCore(this->loggerTask, "loggerTask", 4096, this, 1, NULL, 1);
   } else {
     Serial.println("rtos queue create error, stopped");
-    restartOnError();
+    return false;
   }
+  return true;
 }
 
 void LogTask::loggerTask(void *pvParameters) {
   LogTask *thisPointer = (LogTask *) pvParameters;
   BaseType_t status;
-  int writeFailedCount = 0;
   char buffer[QUEUE_BUFFER_SIZE];
   const TickType_t tick = 10U; // [ms]
 
@@ -121,16 +128,17 @@ void LogTask::loggerTask(void *pvParameters) {
       unsigned long now = millis();
       if (
         thisPointer->requestClose ||
+        thisPointer->requestFlush ||
         SD_BUFFER_COUNT < thisPointer->sdBufferPosition ||
         thisPointer->sdWriteInterval < now - thisPointer->sdLastWrite
       ) {
         for (int i = 0; i < thisPointer->sdBufferPosition; i++) {
           bool writeStatus = thisPointer->sdLog->writeLog(thisPointer->sdBuffer[i]);
           if (writeStatus) {
-            writeFailedCount = 0;
+            thisPointer->writeFailedCount = 0;
           } else {
             Serial.println("SD append failed.");
-            writeFailedCount++;
+            thisPointer->writeFailedCount++;
           }
         }
         thisPointer->sdBufferPosition = 0;
@@ -139,12 +147,13 @@ void LogTask::loggerTask(void *pvParameters) {
           thisPointer->blockSdWrite = true;
           thisPointer->requestClose = false;
         }
+        thisPointer->requestFlush = false;
       }
     }
 
-    if (10 < writeFailedCount) {
+    if (10 < thisPointer->writeFailedCount) {
       Serial.println("sd write failed, stopped");
-      thisPointer->restartOnError();
+      thisPointer->restartOnError(6);
     }
 
     #if ENABLE_WEB_SERVER == true
@@ -186,6 +195,7 @@ void LogTask::restartOnError(int blinkCount) {
 int LogTask::openNextLogFile(fs::FS &fs) {
   int number = sdLog->openNextLogFile(fs);
   blockSdWrite = false;
+  state->logFileNumber = number;
   return number;
 }
 
@@ -195,4 +205,17 @@ void LogTask::closeFile() {
     delay(1);
   }
   sdLog->closeFile();
+}
+
+void LogTask::flushFile() {
+  requestFlush = true;
+  while (requestFlush) {
+    delay(1);
+  }
+}
+
+bool LogTask::checkSdHealth() {
+  sendToLoggerTask("State,Sd test ok\n", false);
+  flushFile();
+  return writeFailedCount == 0;
 }

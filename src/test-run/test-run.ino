@@ -10,7 +10,6 @@
 // 設定
 #define ENABLE_GPS_LOG true
 #define REDUCE_MPU_LOG true
-#define YAW_DIFF_THRESHOLD 3.0
 
 State state;
 SdLog sdLog;
@@ -39,7 +38,9 @@ void setup() {
   // Madgwick filterを使う
   imu.selectMadgwickFilter();
 
-  logTask.setupTask();
+  if (!logTask.setupTask()) {
+    logTask.restartOnError(3);
+  }
 
   createNewLogFile();
 
@@ -56,8 +57,14 @@ void setup() {
   }
   logTask.sendToLoggerTask("State,IMU OK.\n", false);
 
+  if (!logTask.checkSdHealth()) {
+    Serial.println("SD initialization failed.");
+    logTask.restartOnError(6);
+  }
+
   logTask.sendToLoggerTask("State,Wait for GPS fix.\n", false);
   state.enableSdLog = false;
+  state.vehicleMode = VehicleMode::Stop;
   for (unsigned long start = millis(), lastLog = 0; millis() - start < 2 * 60 * 1000;) {
     gps.encode();
     if (1000 < millis() - lastLog) {
@@ -69,18 +76,15 @@ void setup() {
         logTask.sendToLoggerTask("State,GPS location is valid.\n", false);
         break;
       }
+      if (state.vehicleMode != VehicleMode::Stop) {
+        logTask.sendToLoggerTask("State,State was changed.\n", false);
+        break;
+      }
     }
   }
   state.enableSdLog = true;
-
-  if (!canSatIO.isFlightPinInserted()) {
-    // フライトピンが抜けている
-    canSatIO.setLEDOn();
-    // 真っ直ぐ歩いてください
-    calibrateNorthByGPS(15);
-    canSatIO.setLEDOff();
-
-    delay(1000);
+  if (state.vehicleMode == VehicleMode::Stop) {
+    state.vehicleMode = VehicleMode::Mission;
   }
 
   logTask.sendToLoggerTask("State,setup ended.\n", false);
@@ -114,36 +118,38 @@ void loop() {
       logTask.closeFile();
       createNewLogFile();
 
+      state.vehicleMode = VehicleMode::Mission;
+
       break;
     }
 
     // state.targetYaw に向ける
-    int diff = state.targetYaw - imu.yaw;
-    if (diff < -180) {
-      diff += 360;
-    } else if (180 < diff) {
-      diff -= 360;
-    }
-    if (diff < -YAW_DIFF_THRESHOLD) {
+    state.yawDiff = state.clipYawDiff(state.targetYaw - imu.yaw);
+    state.checkYawForGpsCompensation();
+    if (state.yawDiff < -state.yawDiffThreshold) {
       canSatIO.setLEDOff();
-      state.motorLeft = state.currentSpeed - std::abs(diff) * 2;
+      state.motorLeft = state.currentSpeed - std::abs(state.yawDiff) * 2;
       state.motorRight = state.currentSpeed;
-    } else if (YAW_DIFF_THRESHOLD < diff) {
+    } else if (state.yawDiffThreshold < state.yawDiff) {
       canSatIO.setLEDOff();
       state.motorLeft = state.currentSpeed;
-      state.motorRight = state.currentSpeed - std::abs(diff) * 2;
+      state.motorRight = state.currentSpeed - std::abs(state.yawDiff) * 2;
     } else {
       canSatIO.setLEDOn();
       state.motorLeft = state.currentSpeed;
       state.motorRight = state.currentSpeed;
     }
 
+    state.flightPinInserted = canSatIO.isFlightPinInserted();
+
+    state.detectFallDown = imu.roll < -45 || 45 < imu.roll;
+
     if (
-      !canSatIO.isFlightPinInserted() ||
-      imu.roll < -45 ||
-      45 < imu.roll
+      !state.flightPinInserted ||
+      state.detectFallDown ||
+      state.vehicleMode == VehicleMode::Stop ||
+      state.vehicleMode == VehicleMode::Completed
     ) {
-      // フライトピンが抜かれるか、機体が横転したら止める
       state.motorLeft = 0;
       state.motorRight = 0;
     }
@@ -161,70 +167,31 @@ void loop() {
     logTask.sendToLoggerTask(buffer, false);
   }
   // ゴールの向きにtargetYawを設定
-  if (state.targetIsGoal) {
+  if (state.vehicleMode == VehicleMode::Mission) {
     state.targetYaw = gps.courseToGoal;
-    if (gps.distanceToGoal < 1.0) {
-      state.currentSpeed = state.defaultSpeed * 0.25;
+    if (gps.distanceToGoal < 0.5) {
+      state.currentSpeed = state.defaultSpeed * 0.15;
+      // TODO: 終了条件
+      // state.vehicleMode = VehicleMode::Completed;
+      // logTask.sendToLoggerTask("State,Mission Completed.\n", false);
+    } else if (gps.distanceToGoal < 1.0) {
+      state.currentSpeed = state.defaultSpeed * 0.33;
     } else if (gps.distanceToGoal < 3.0) {
-      state.currentSpeed = state.defaultSpeed * 0.5;
+      state.currentSpeed = state.defaultSpeed * 0.66;
     } else {
       state.currentSpeed = state.defaultSpeed;
     }
+    state.doGpsCompensation();
   }
+  state.gpsYawDiff = state.clipYawDiff(imu.yaw - gps.course);
+  state.goalDistance = gps.distanceToGoal;
   buffer = "";
   state.getLogString(buffer);
   logTask.sendToLoggerTask(buffer, false);
-}
 
-void fastCalibrate() {
-  motor.move(state.currentSpeed, -state.currentSpeed);
-
-  double some_small_value = -1000.0;
-  double some_big_value = 1000.0;
-
-  double mag_x_max = some_small_value;
-  double mag_x_min = some_big_value;
-  double mag_y_max = some_small_value;
-  double mag_y_min = some_big_value;
-  double mag_z_max = some_small_value;
-  double mag_z_min = some_big_value;
-
-  const unsigned long ms = 10000;
-  unsigned long start = millis();
-
-  while (millis() - start < ms) {
-    if (imu.update()) {
-      mag_x_max = std::max(imu.magX, mag_x_max);
-      mag_x_min = std::min(imu.magX, mag_x_min);
-      mag_y_max = std::max(imu.magY, mag_y_max);
-      mag_y_min = std::min(imu.magY, mag_y_min);
-      mag_z_max = std::max(imu.magZ, mag_z_max);
-      mag_z_min = std::min(imu.magZ, mag_z_min);
-    }
-
-    if (canSatIO.isFlightPinInserted()) {
-      // フライトピンが刺されたら止める
-      break;
-    }
+  if (state.vehicleMode == VehicleMode::CalibrateMag) {
+    calibrateMag();
   }
-
-  motor.stop();
-
-  String message = "";
-  message += String("Calibrate,setMagBias(");
-  double magX = imu.mpu.getMagBiasX() + ((mag_x_max + mag_x_min) / 2);
-  message += String(magX, 6);
-  message += String(", ");
-  double magY = imu.mpu.getMagBiasY() + ((mag_y_max + mag_y_min) / 2);
-  message += String(magY, 6);
-  message += String(", ");
-  double magZ = imu.mpu.getMagBiasZ() + ((mag_z_max + mag_z_min) / 2);
-  message += String(magZ, 6);
-  message += String(");\n");
-
-  logTask.sendToLoggerTask(message, false);
-
-  imu.mpu.setMagBias(magX, magY, magZ);
 }
 
 void createNewLogFile() {
@@ -241,111 +208,37 @@ void createNewLogFile() {
 
   String message = "";
   imu.getHeader(message);
-
   logTask.sendToLoggerTask(message, false);
-}
 
-void calibrateNorth(int timeoutSeconds) {
-  double northYaw = 0.0;
-  canSatIO.setLEDOn();
+  message = "";
+  state.getHeader(message);
+  logTask.sendToLoggerTask(message, false);
 
-  const unsigned long ms = timeoutSeconds * 1000;
-  const unsigned long logIntervalMs = 100;
-  unsigned long start = millis();
-  unsigned long lastLogOutput = start;
-
-  int seconds = 0;
-  while (millis() - start < ms) {
-    if (imu.update()) {
-      northYaw = imu.yaw;
-    }
-    if (canSatIO.isButtonJustPressed()) {
-      break;
-    }
-    if (lastLogOutput < millis() - logIntervalMs) {
-      lastLogOutput = millis();
-      Serial.println(northYaw);
-    }
+  if (!logTask.checkSdHealth()) {
+    Serial.println("SD initialization failed.");
+    logTask.restartOnError(6);
   }
-  canSatIO.setLEDOff();
-  state.northYaw = northYaw;
-
-  String message = "northYaw: ";
-  message += String(northYaw, 6);
-  message += String("\n");
-
-  logTask.sendToLoggerTask(message, false);
-
-  delay(1000);
 }
 
-void calibrateNorthByGPS(int timeoutSeconds) {
-  canSatIO.setLEDOn();
-
-  const unsigned long ms = timeoutSeconds * 1000;
-  const unsigned long logIntervalMs = 100;
-  unsigned long start = millis();
-  unsigned long lastLogOutput = start;
-
-  const int coursesMax = 8;
-  double courses[coursesMax];
-  double yaws[coursesMax];
-  int i = 0;
-
-  while (millis() - start < ms) {
-    gps.encode();
+void calibrateMag() {
+  motor.stop();
+  logTask.sendToLoggerTask("State,CalibrateMag\n", false);
+  imu.magCalibrateInitialize();
+  unsigned long lastLog = 0;
+  while (!canSatIO.isButtonJustPressed()) {
     imu.update();
-    if (canSatIO.isButtonJustPressed()) {
-      break;
-    }
-    if (lastLogOutput < millis() - logIntervalMs) {
-      lastLogOutput = millis();
-      String buffer = "State: calibrateNorthByGPS\n";
-      logTask.sendToLoggerTask(buffer, false);
-      buffer = "";
+    if (100 < millis() - lastLog) {
+      lastLog = millis();
+      String buffer = "";
       imu.getLogString(buffer);
-      logTask.sendToLoggerTask(buffer, false);
+      logTask.sendToLoggerTask(buffer, true);
       buffer = "";
-      gps.readValues(buffer);
-      logTask.sendToLoggerTask(buffer, false);
-      courses[i % coursesMax] = gps.courseToGoal;
-      yaws[i % coursesMax] = imu.yaw;
-      i++;
+      state.getLogString(buffer);
+      logTask.sendToLoggerTask(buffer, true);
     }
   }
-  canSatIO.setLEDOff();
-
-  double course = 0.0;
-  double yaw = 0.0;
-  int availableSamples = std::min(i, coursesMax);
-
-  if (availableSamples == 0) {
-    String message = "calibrateNorthByGPS cancelled.\n";
-    logTask.sendToLoggerTask(message, false);
-    return;
-  }
-
-  for (int i = 0; i < availableSamples; i++) {
-    course += courses[i];
-    yaw += yaws[i];
-  }
-
-  course /= availableSamples;
-  yaw /= availableSamples;
-
-  double northYaw = yaw - course;
-
-  if (northYaw < 0) {
-    northYaw += 360.0;
-  }
-
-  state.northYaw = northYaw;
-
-  String message = "northYaw: ";
-  message += String(northYaw, 6);
-  message += String("\n");
-
-  logTask.sendToLoggerTask(message, false);
-
-  delay(1000);
+  String buffer = "";
+  imu.magCalibrateApply(buffer);
+  logTask.sendToLoggerTask(buffer, true);
+  state.vehicleMode = VehicleMode::Mission;
 }

@@ -133,9 +133,6 @@ void GPS::encode() {
 }
 
 void GPS::getHeader(String& buffer) {
-  buffer += String("GPS,Testing TinyGPS++ library v. ");
-  buffer += String(TinyGPSPlus::libraryVersion());
-  buffer += String("\n");
   buffer += String("GPS,Sats,HDOP,Latitude,Longitude,Fix Age,DateTime,DateAge,Alt,Course,Speed,Card,DistanceToG,CourseToG,CardToG,CharsRX,SentencesRX,ChecksumFail\n");
 }
 

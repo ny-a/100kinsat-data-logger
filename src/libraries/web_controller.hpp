@@ -35,16 +35,20 @@ WebController::WebController(const char * ssid, const char * password, State * s
       body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; Color: #000088; }\
     </style>\
     <script>\
-      setInterval(function() {\
+      setTimeout(function update() {\
         fetch('/log')\
           .then(res => res.text())\
           .then(text => document.getElementById('log').innerHTML = text)\
+          .then(() => setTimeout(update, 250))\
       }, 250);\
     </script>\
   </head>\
   <body>\
     <h1>CanSat Controller</h1>\
     <pre id='log'></pre>\
+    <p>\
+      -- CONTROL --\
+    </p>\
     <p>\
       <form action='/goal' method='get'>\
         <label for='lat'>Goal lat,long:</label>\
@@ -55,7 +59,7 @@ WebController::WebController(const char * ssid, const char * password, State * s
     </p>\
     <p>\
       <form action='/targetYaw' method='get'>\
-        <label for='lat'>Fixed targetYaw, speed:</label>\
+        <label for='yaw'>Fixed targetYaw, speed:</label>\
         <input type='text' name='yaw'>\
         <input type='text' name='speed'>\
         <input type='submit' value='Update'>\
@@ -63,10 +67,41 @@ WebController::WebController(const char * ssid, const char * password, State * s
     </p>\
     <p>\
       <form action='/northYaw' method='get'>\
-        <label for='lat'>Set northYaw:</label>\
+        <label for='yaw'>Set northYaw:</label>\
         <input type='text' name='yaw'>\
         <input type='submit' value='Update'>\
       </form>\
+    </p>\
+    <p>\
+      <a href='/magCalibrate'>Start magCalibrate</a>\
+    </p>\
+    <p>\
+      <a href='/stop'>Stop motor</a>\
+    </p>\
+    <p>\
+      SD Log:\
+      <a href='/sd/enable'>Enable</a>\
+      <a href='/sd/disable'>Disable</a>\
+    </p>\
+    <p>\
+      -- SYSTEM --\
+    </p>\
+    <p>\
+      <form action='/log_show' method='get'>\
+        <label for='number'>Show log:</label>\
+        <input type='text' name='number'>\
+        <input type='submit' value='Show'>\
+      </form>\
+    </p>\
+    <p>\
+      <form action='/log_dl' method='get'>\
+        <label for='number'>Download log:</label>\
+        <input type='text' name='number'>\
+        <input type='submit' value='Show'>\
+      </form>\
+    </p>\
+    <p>\
+      <a href='/reboot'>Reboot (EN button)</a>\
     </p>\
   </body>\
 </html>");
@@ -103,7 +138,8 @@ WebController::WebController(const char * ssid, const char * password, State * s
 
   server.on("/reboot", [&]() {
     xTaskCreatePinnedToCore(this->state->userRequestReboot, "reboot", 1024, this->state, 1, NULL, 0);
-    server.send(200, "text/plain", "ok");
+    server.sendHeader("Location", "/");
+    server.send(302);
   });
 
   server.on("/goal", [&]() {
@@ -120,7 +156,6 @@ WebController::WebController(const char * ssid, const char * password, State * s
     State newState;
     newState.goalLat = lat;
     newState.goalLong = lng;
-    newState.targetIsGoal = true;
     State * args[2];
     args[0] = this->state;
     args[1] = &newState;
@@ -146,7 +181,6 @@ WebController::WebController(const char * ssid, const char * password, State * s
     State newState;
     newState.targetYaw = yaw;
     newState.currentSpeed = speed;
-    newState.targetIsGoal = false;
     State * args[2];
     args[0] = this->state;
     args[1] = &newState;
@@ -175,6 +209,94 @@ WebController::WebController(const char * ssid, const char * password, State * s
     server.send(302);
     delay(100);
     vTaskDelete(handle);
+  });
+
+  server.on("/magCalibrate", [&]() {
+    State * args[1];
+    args[0] = this->state;
+    TaskHandle_t handle;
+    xTaskCreatePinnedToCore(this->state->magCalibrate, "magCalibrate", 1024, args, 1, &handle, 0);
+    server.sendHeader("Location", "/");
+    server.send(302);
+    delay(100);
+    vTaskDelete(handle);
+  });
+
+  server.on("/stop", [&]() {
+    State * args[1];
+    args[0] = this->state;
+    TaskHandle_t handle;
+    xTaskCreatePinnedToCore(this->state->stop, "stop", 1024, args, 1, &handle, 0);
+    server.sendHeader("Location", "/");
+    server.send(302);
+    delay(100);
+    vTaskDelete(handle);
+  });
+
+  server.on("/sd/enable", [&]() {
+    State newState;
+    newState.enableSdLog = true;
+    State * args[2];
+    args[0] = this->state;
+    args[1] = &newState;
+    TaskHandle_t handle;
+    xTaskCreatePinnedToCore(this->state->copySdLogState, "copySdLogState", 1024, args, 1, &handle, 0);
+    server.sendHeader("Location", "/");
+    server.send(302);
+    delay(100);
+    vTaskDelete(handle);
+  });
+
+  server.on("/sd/disable", [&]() {
+    State newState;
+    newState.enableSdLog = false;
+    State * args[2];
+    args[0] = this->state;
+    args[1] = &newState;
+    TaskHandle_t handle;
+    xTaskCreatePinnedToCore(this->state->copySdLogState, "copySdLogState", 1024, args, 1, &handle, 0);
+    server.sendHeader("Location", "/");
+    server.send(302);
+    delay(100);
+    vTaskDelete(handle);
+  });
+
+  server.on("/log_dl", [&]() {
+    String path = "/log/" + server.arg("number") + ".csv";
+    File dataFile = SD.open(path.c_str());
+
+    if (!dataFile) {
+      server.send(404);
+      return false;
+    }
+
+    String dataType = "application/octet-stream";
+
+    if (server.streamFile(dataFile, dataType) != dataFile.size()) {
+      Serial.println("Sent less data than expected!");
+    }
+
+    dataFile.close();
+    return true;
+  });
+
+  server.on("/log_show", [&]() {
+    String path = "/log/" + server.arg("number") + ".csv";
+    File dataFile = SD.open(path.c_str());
+
+    if (!dataFile) {
+      server.send(404);
+      return false;
+    }
+
+    String dataType = "text/plain";
+
+    if (server.streamFile(dataFile, dataType) != dataFile.size()) {
+      Serial.println("Sent less data than expected!");
+    }
+
+    dataFile.close();
+    return true;
   });
 
   server.onNotFound([&]() {

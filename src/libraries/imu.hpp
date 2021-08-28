@@ -14,6 +14,9 @@ class IMU {
     void getLogString(String& buffer);
     void setNorthYaw(double value);
     bool checkValue(int limit);
+    void magCalibrateInitialize();
+    void magCalibrateMain();
+    void magCalibrateApply(String& buffer);
 
     MPU9250 mpu;
 
@@ -73,6 +76,13 @@ bool IMU::update() {
     magX = mpu.getMagX();
     magY = mpu.getMagY();
     magZ = mpu.getMagZ();
+
+    state->magXMax = std::max(magX, state->magXMax);
+    state->magXMin = std::min(magX, state->magXMin);
+    state->magYMax = std::max(magY, state->magYMax);
+    state->magYMin = std::min(magY, state->magYMin);
+    state->magZMax = std::max(magZ, state->magZMax);
+    state->magZMin = std::min(magZ, state->magZMin);
   }
 
   return isUpdated;
@@ -123,4 +133,31 @@ bool IMU::checkValue(int limit) {
     }
   }
   return false;
+}
+
+void IMU::magCalibrateInitialize() {
+  mpu.setMagBias(0, 0, 0);
+  delay(10);
+
+  state->magXMax = magX;
+  state->magXMin = magX;
+  state->magYMax = magY;
+  state->magYMin = magY;
+  state->magZMax = magZ;
+  state->magZMin = magZ;
+}
+
+void IMU::magCalibrateApply(String& buffer) {
+  buffer += String("MPU9250,Calibrate,setMagBias(");
+  double magX = ((state->magXMax + state->magXMin) / 2);
+  buffer += String(magX, 6);
+  buffer += String(", ");
+  double magY = ((state->magYMax + state->magYMin) / 2);
+  buffer += String(magY, 6);
+  buffer += String(", ");
+  double magZ = ((state->magZMax + state->magZMin) / 2);
+  buffer += String(magZ, 6);
+  buffer += String(");\n");
+
+  mpu.setMagBias(magX, magY, magZ);
 }
