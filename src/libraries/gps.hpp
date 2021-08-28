@@ -99,8 +99,8 @@ bool GPS::changeUpdateInterval() {
   }
   debugPrintln("GPS,225");
   ss->write("$PMTK225,0*2B\r\n");
-  ss->write("$PMTK220,200*2C\r\n");
-  ss->write("$PMTK300,200,0,0,0,0*2F\r\n");
+  ss->write("$PMTK220,100*2F\r\n");
+  ss->write("$PMTK300,100,0,0,0,0*2C\r\n");
   ss->write("$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n");
   ss->flush();
   const char* pmtk001 = "$PMTK001,314,3*36";
