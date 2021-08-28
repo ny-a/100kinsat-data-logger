@@ -3,6 +3,7 @@
 #include "state.hpp"
 #include "sd_log.hpp"
 #include "cansat_io.hpp"
+#include "FS.h"
 
 // WebServer の有効化
 #define ENABLE_WEB_SERVER false
@@ -26,6 +27,8 @@ class LogTask {
     void setupTask();
     void restartOnError();
     void restartOnError(int blinkCount);
+    int openNextLogFile(fs::FS &fs);
+    void closeFile();
 
     QueueHandle_t queue;
     SdLog * sdLog;
@@ -34,6 +37,8 @@ class LogTask {
     int sdBufferPosition = 0;
     unsigned long sdLastWrite = 0;
     unsigned long sdWriteInterval = 2000;
+    bool requestClose = false;
+    bool blockSdWrite = false;
 
   private:
     static void loggerTask(void *pvParameters);
@@ -84,23 +89,26 @@ void LogTask::loggerTask(void *pvParameters) {
   const TickType_t tick = 10U; // [ms]
 
   #if ENABLE_WEB_SERVER == true
-  WebController webController(WIFI_SSID, WIFI_PASS);
+  WebController webController(WIFI_SSID, WIFI_PASS, thisPointer->state);
   #endif
 
   while (true) {
     status = xQueueReceive(thisPointer->queue, buffer, tick);
     if(status == pdPASS) {
-      if (thisPointer->state->enableSdLog) {
+      if (thisPointer->state->enableSdLog && thisPointer->sdBufferPosition < SD_BUFFER_COUNT) {
         strcpy(thisPointer->sdBuffer[thisPointer->sdBufferPosition], buffer);
         thisPointer->sdBufferPosition++;
       }
 
       #if ENABLE_WEB_SERVER == true
-      if (buffer[0] == 'G') {
+      if (buffer[0] == 'S') {
         webController.setValue(0, buffer);
       }
-      if (buffer[0] == 'M') {
+      if (buffer[0] == 'G') {
         webController.setValue(1, buffer);
+      }
+      if (buffer[0] == 'M') {
+        webController.setValue(2, buffer);
       }
       #endif
     } else {
@@ -109,9 +117,10 @@ void LogTask::loggerTask(void *pvParameters) {
       }
     }
 
-    if (0 < thisPointer->sdBufferPosition) {
+    if (0 < thisPointer->sdBufferPosition && !thisPointer->blockSdWrite) {
       unsigned long now = millis();
       if (
+        thisPointer->requestClose ||
         SD_BUFFER_COUNT < thisPointer->sdBufferPosition ||
         thisPointer->sdWriteInterval < now - thisPointer->sdLastWrite
       ) {
@@ -126,6 +135,10 @@ void LogTask::loggerTask(void *pvParameters) {
         }
         thisPointer->sdBufferPosition = 0;
         thisPointer->sdLastWrite = now;
+        if (thisPointer->requestClose) {
+          thisPointer->blockSdWrite = true;
+          thisPointer->requestClose = false;
+        }
       }
     }
 
@@ -137,6 +150,10 @@ void LogTask::loggerTask(void *pvParameters) {
     #if ENABLE_WEB_SERVER == true
     webController.handleClient();
     #endif
+
+    if (thisPointer->state->rebootByUserRequest) {
+      thisPointer->restartOnError(2);
+    }
   }
 }
 
@@ -164,4 +181,18 @@ void LogTask::restartOnError(int blinkCount) {
   Serial.println("Restarting...");
   delay(100);
   ESP.restart();
+}
+
+int LogTask::openNextLogFile(fs::FS &fs) {
+  int number = sdLog->openNextLogFile(fs);
+  blockSdWrite = false;
+  return number;
+}
+
+void LogTask::closeFile() {
+  requestClose = true;
+  while (requestClose) {
+    delay(1);
+  }
+  sdLog->closeFile();
 }

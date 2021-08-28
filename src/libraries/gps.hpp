@@ -1,5 +1,6 @@
 #pragma once
 
+#include "./state.hpp"
 #include <TinyGPS++.h>
 
 #define GPS_RX_PIN 2
@@ -8,10 +9,9 @@
 
 class GPS {
   public:
-    GPS();
+    GPS(State * state);
 
     bool changeUpdateInterval();
-    void setGoal(double lat, double lng);
     void encode();
     void getHeader(String& buffer);
     void readValues(String& buffer);
@@ -27,16 +27,16 @@ class GPS {
 
   private:
     HardwareSerial *ss;
-    double goalLat = 0.0;
-    double goalLong = 0.0;
+    State * state;
 
     void debugWrite(char message);
     void debugPrintln(const char * message);
 };
 
-GPS::GPS() {
+GPS::GPS(State * state) {
   ss = new HardwareSerial(GPS_RX_PIN);
   ss->begin(GPS_DEFAULT_BAUD);
+  this->state = state;
 }
 
 bool GPS::changeUpdateInterval() {
@@ -124,11 +124,6 @@ bool GPS::changeUpdateInterval() {
   }
   debugPrintln("GPS,setup end");
   return seems_ok;
-}
-
-void GPS::setGoal(double lat, double lng) {
-  goalLat = lat;
-  goalLong = lng;
 }
 
 void GPS::encode() {
@@ -246,8 +241,8 @@ void GPS::readValues(String& buffer) {
     TinyGPSPlus::distanceBetween(
       gps.location.lat(),
       gps.location.lng(),
-      goalLat,
-      goalLong);
+      state->goalLat,
+      state->goalLong);
 
   if (locationIsValid) {
     buffer += String(distanceToGoal, 6);
@@ -258,8 +253,8 @@ void GPS::readValues(String& buffer) {
     TinyGPSPlus::courseTo(
       gps.location.lat(),
       gps.location.lng(),
-      goalLat,
-      goalLong);
+      state->goalLat,
+      state->goalLong);
 
   if (locationIsValid) {
     buffer += String(courseToGoal, 6);

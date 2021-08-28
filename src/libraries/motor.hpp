@@ -22,6 +22,8 @@ class Motor {
     const int LEDC_TIMER_BIT = 8;
     const int LEDC_BASE_FREQ = 490;
     const int LEDC_VALUE_MAX = (1 << LEDC_TIMER_BIT) - 1;
+
+    const int VALUE_MIN = 30;
 };
 
 Motor::Motor() {
@@ -46,6 +48,8 @@ void Motor::move(int pwm_left, int pwm_right) {
   } else {
     bool cw = pwm_left < 0;
     int value = std::min(std::abs(pwm_left), LEDC_VALUE_MAX);
+    // 値が小さすぎると動かない
+    value = std::max(value, VALUE_MIN);
     digitalWrite(MOTOR_A[(int)!cw], LOW);
     digitalWrite(MOTOR_A[(int) cw], HIGH);
     ledcWrite(CHANNEL_A, value);
@@ -59,6 +63,8 @@ void Motor::move(int pwm_left, int pwm_right) {
   } else {
     bool cw = pwm_right < 0;
     int value = std::min(std::abs(pwm_right), LEDC_VALUE_MAX);
+    // 値が小さすぎると動かない
+    value = std::max(value, VALUE_MIN);
     digitalWrite(MOTOR_B[(int)!cw], LOW);
     digitalWrite(MOTOR_B[(int) cw], HIGH);
     ledcWrite(CHANNEL_B, value);

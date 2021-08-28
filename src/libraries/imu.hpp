@@ -1,10 +1,11 @@
 #pragma once
 
+#include "./state.hpp"
 #include "MPU9250.h"
 
 class IMU {
   public:
-    IMU();
+    IMU(State * state);
 
     void setup();
     void getHeader(String& buffer);
@@ -30,10 +31,11 @@ class IMU {
     double roll = 0.0;
 
   private:
-    double northYaw = 0.0;
+    State * state;
 };
 
-IMU::IMU() {
+IMU::IMU(State * state) {
+  this->state = state;
 }
 
 // setup 内でする必要がありそう
@@ -55,7 +57,7 @@ void IMU::selectMadgwickFilter() {
 bool IMU::update() {
   bool isUpdated = mpu.update();
   if (isUpdated) {
-    yaw = mpu.getYaw() + 180.0 - northYaw;
+    yaw = mpu.getYaw() + 180.0 - state->northYaw;
     if (yaw < 0.0) {
       yaw += 360.0;
     }
@@ -105,11 +107,6 @@ void IMU::getLogString(String& buffer) {
   buffer += String(magZ, 6);
 
   buffer += String("\n");
-}
-
-
-void IMU::setNorthYaw(double value) {
-  northYaw = value;
 }
 
 bool IMU::checkValue(int limit) {
