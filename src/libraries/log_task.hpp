@@ -51,6 +51,8 @@ void LogTask::sendToLoggerTask(String &buffer, bool skippable) {
 void LogTask::sendToLoggerTask(const char * buffer, bool skippable) {
   BaseType_t status;
 
+  Serial.print(buffer);
+
   if (!skippable || uxQueueMessagesWaiting(queue) == 0) {
     status = xQueueSend(queue, buffer, 0);
 
@@ -85,8 +87,7 @@ void LogTask::loggerTask(void *pvParameters) {
   while (true) {
     status = xQueueReceive(thisPointer->queue, buffer, tick);
     if(status == pdPASS) {
-      Serial.print(buffer);
-      strcpy(buffer, thisPointer->sdBuffer[thisPointer->sdBufferPosition]);
+      strcpy(thisPointer->sdBuffer[thisPointer->sdBufferPosition], buffer);
       thisPointer->sdBufferPosition++;
 
       #if ENABLE_WEB_SERVER == true
@@ -101,10 +102,6 @@ void LogTask::loggerTask(void *pvParameters) {
       if (uxQueueMessagesWaiting(thisPointer->queue) != 0) {
         Serial.println("rtos queue receive error?");
       }
-    }
-    if (10 < writeFailedCount) {
-      Serial.println("sd write failed, stopped");
-      thisPointer->restartOnError();
     }
 
     if (0 < thisPointer->sdBufferPosition) {
@@ -125,6 +122,11 @@ void LogTask::loggerTask(void *pvParameters) {
         thisPointer->sdBufferPosition = 0;
         thisPointer->sdLastWrite = now;
       }
+    }
+
+    if (10 < writeFailedCount) {
+      Serial.println("sd write failed, stopped");
+      thisPointer->restartOnError();
     }
 
     #if ENABLE_WEB_SERVER == true
