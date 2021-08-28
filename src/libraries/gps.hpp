@@ -158,17 +158,18 @@ void GPS::readValues(String& buffer) {
   }
   buffer += String(",");
 
-  if (gps.location.isValid()) {
+  locationIsValid = gps.location.isValid();
+  if (locationIsValid) {
     buffer += String(gps.location.lat(), 6);
   }
   buffer += String(",");
 
-  if (gps.location.isValid()) {
+  if (locationIsValid) {
     buffer += String(gps.location.lng(), 6);
   }
   buffer += String(",");
 
-  if (gps.location.isValid()) {
+  if (locationIsValid) {
     buffer += String(gps.location.age());
   }
   buffer += String(",");
@@ -248,7 +249,7 @@ void GPS::readValues(String& buffer) {
       goalLat,
       goalLong);
 
-  if (gps.location.isValid()) {
+  if (locationIsValid) {
     buffer += String(distanceToGoal, 6);
   }
   buffer += String(",");
@@ -260,14 +261,14 @@ void GPS::readValues(String& buffer) {
       goalLat,
       goalLong);
 
-  if (gps.location.isValid()) {
+  if (locationIsValid) {
     buffer += String(courseToGoal, 6);
   }
   buffer += String(",");
 
   const char *cardinalToGoal = TinyGPSPlus::cardinal(courseToGoal);
 
-  if (gps.location.isValid()) {
+  if (locationIsValid) {
     buffer += String(cardinalToGoal);
   }
   buffer += String(",");
