@@ -15,12 +15,13 @@
 // 進む向き
 double targetYaw = 0;
 
+State state;
 SdLog sdLog;
 Motor motor;
 GPS gps;
 IMU imu;
 CanSatIO canSatIO;
-LogTask logTask(&sdLog, &canSatIO);
+LogTask logTask(&sdLog, &canSatIO, &state);
 
 void setup() {
   Serial.begin(115200);
@@ -57,6 +58,23 @@ void setup() {
     logTask.restartOnError(5);
   }
   logTask.sendToLoggerTask("IMU OK.\n", false);
+
+  logTask.sendToLoggerTask("State,Wait for GPS fix.\n", false);
+  state.enableSdLog = false;
+  for (unsigned long start = millis(), lastLog = 0; millis() - start < 2 * 60 * 1000;) {
+    gps.encode();
+    if (1000 < millis() - lastLog) {
+      lastLog = millis();
+      String buffer = "";
+      gps.readValues(buffer);
+      logTask.sendToLoggerTask(buffer, false);
+      if (gps.locationIsValid) {
+        logTask.sendToLoggerTask("State,GPS location is valid.\n", false);
+        break;
+      }
+    }
+  }
+  state.enableSdLog = true;
 
   if (!canSatIO.isFlightPinInserted()) {
     // フライトピンが抜けている

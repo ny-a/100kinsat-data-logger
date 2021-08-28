@@ -1,5 +1,6 @@
 #pragma once
 
+#include "state.hpp"
 #include "sd_log.hpp"
 #include "cansat_io.hpp"
 
@@ -19,7 +20,7 @@
 
 class LogTask {
   public:
-    LogTask(SdLog * sdLog, CanSatIO * canSatIO);
+    LogTask(SdLog * sdLog, CanSatIO * canSatIO, State * state);
     void sendToLoggerTask(String &buffer, bool skippable);
     void sendToLoggerTask(const char * buffer, bool skippable);
     void setupTask();
@@ -28,6 +29,7 @@ class LogTask {
 
     QueueHandle_t queue;
     SdLog * sdLog;
+    State * state;
     char sdBuffer[SD_BUFFER_COUNT + 8][QUEUE_BUFFER_SIZE];
     int sdBufferPosition = 0;
     unsigned long sdLastWrite = 0;
@@ -39,9 +41,10 @@ class LogTask {
     CanSatIO * canSatIO;
 };
 
-LogTask::LogTask(SdLog * sdLog, CanSatIO * canSatIO) {
+LogTask::LogTask(SdLog * sdLog, CanSatIO * canSatIO, State * state) {
   this->sdLog = sdLog;
   this->canSatIO = canSatIO;
+  this->state = state;
 }
 
 void LogTask::sendToLoggerTask(String &buffer, bool skippable) {
@@ -87,8 +90,10 @@ void LogTask::loggerTask(void *pvParameters) {
   while (true) {
     status = xQueueReceive(thisPointer->queue, buffer, tick);
     if(status == pdPASS) {
-      strcpy(thisPointer->sdBuffer[thisPointer->sdBufferPosition], buffer);
-      thisPointer->sdBufferPosition++;
+      if (thisPointer->state->enableSdLog) {
+        strcpy(thisPointer->sdBuffer[thisPointer->sdBufferPosition], buffer);
+        thisPointer->sdBufferPosition++;
+      }
 
       #if ENABLE_WEB_SERVER == true
       if (buffer[0] == 'G') {
