@@ -53,11 +53,13 @@ class State {
     int gpsCompensationInterval = 10000;
     double gpsYawCompensationLimitAtOnce = 10.0;
     double gpsCompensationFactor = 0.5;
+    int missionCompleteDecisionDuration = 15;
 
     unsigned long lastGpsYawCompensation = 0;
     double gpsYawCompensationSum = 0.0;
     int gpsYawCompensationItems = 0;
     double latestGpsDiff = 0.0;
+    unsigned long arrivedGoalAt = 0;
 
     bool enableSdLog = true;
 

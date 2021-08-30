@@ -146,15 +146,21 @@ void loop() {
   if (state.vehicleMode == VehicleMode::Mission) {
     state.targetYaw = gps.courseToGoal;
     if (gps.distanceToGoal < 0.5) {
-      state.currentSpeed = state.defaultSpeed * 0.15;
-      // TODO: 終了条件
-      // state.vehicleMode = VehicleMode::Completed;
-      // logTask.sendToLoggerTask("State,Mission Completed.\n", false);
+      // 終了条件
+      if (state.arrivedGoalAt == 0) {
+        state.arrivedGoalAt = millis();
+      } else if (state.missionCompleteDecisionDuration * 1000 < millis() - state.arrivedGoalAt) {
+        state.vehicleMode = VehicleMode::Completed;
+        logTask.sendToLoggerTask("State,Mission Completed.\n", false);
+      }
     } else if (gps.distanceToGoal < 1.0) {
+      state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed * 0.33;
     } else if (gps.distanceToGoal < 3.0) {
+      state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed * 0.66;
     } else {
+      state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed;
     }
     if (previousGpsYaw != gps.course && 0.3 < gps.speedKmph) {
