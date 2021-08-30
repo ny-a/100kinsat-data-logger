@@ -128,38 +128,7 @@ void loop() {
 
       break;
     }
-
-    // state.targetYaw に向ける
-    state.yawDiff = state.clipYawDiff(state.targetYaw - imu.yaw);
     state.checkYawForGpsCompensation();
-    if (state.yawDiff < -state.yawDiffThreshold) {
-      canSatIO.setLEDOff();
-      state.motorLeft = state.currentSpeed - std::abs(state.yawDiff) * 2;
-      state.motorRight = state.currentSpeed;
-    } else if (state.yawDiffThreshold < state.yawDiff) {
-      canSatIO.setLEDOff();
-      state.motorLeft = state.currentSpeed;
-      state.motorRight = state.currentSpeed - std::abs(state.yawDiff) * 2;
-    } else {
-      canSatIO.setLEDOn();
-      state.motorLeft = state.currentSpeed;
-      state.motorRight = state.currentSpeed;
-    }
-
-    state.flightPinInserted = canSatIO.isFlightPinInserted();
-
-    state.detectFallDown = imu.roll < -45 || 45 < imu.roll;
-
-    if (
-      !state.flightPinInserted ||
-      state.detectFallDown ||
-      state.vehicleMode == VehicleMode::Stop ||
-      state.vehicleMode == VehicleMode::Completed
-    ) {
-      state.motorLeft = 0;
-      state.motorRight = 0;
-    }
-    motor.move(state.motorLeft, state.motorRight);
   }
 
   if (REDUCE_MPU_LOG) {
@@ -168,6 +137,7 @@ void loop() {
     logTask.sendToLoggerTask(buffer, true);
   }
   String buffer = "";
+  double previousGpsYaw = gps.course;
   gps.readValues(buffer);
   if (ENABLE_GPS_LOG) {
     logTask.sendToLoggerTask(buffer, false);
@@ -187,7 +157,9 @@ void loop() {
     } else {
       state.currentSpeed = state.defaultSpeed;
     }
-    state.doGpsCompensation();
+    if (previousGpsYaw != gps.course && 0.3 < gps.speedKmph) {
+      state.doGpsCompensation();
+    }
   }
   double yawAverage = imu.yaw;
   if (yawItems != 0) {
@@ -198,6 +170,37 @@ void loop() {
   buffer = "";
   state.getLogString(buffer);
   logTask.sendToLoggerTask(buffer, false);
+
+  // state.targetYaw に向ける
+  state.yawDiff = state.clipYawDiff(state.targetYaw - yawAverage);
+  if (state.yawDiff < -state.yawDiffThreshold) {
+    canSatIO.setLEDOff();
+    state.motorLeft = state.currentSpeed - std::abs(state.yawDiff) * 2;
+    state.motorRight = state.currentSpeed;
+  } else if (state.yawDiffThreshold < state.yawDiff) {
+    canSatIO.setLEDOff();
+    state.motorLeft = state.currentSpeed;
+    state.motorRight = state.currentSpeed - std::abs(state.yawDiff) * 2;
+  } else {
+    canSatIO.setLEDOn();
+    state.motorLeft = state.currentSpeed;
+    state.motorRight = state.currentSpeed;
+  }
+
+  state.flightPinInserted = canSatIO.isFlightPinInserted();
+
+  state.detectFallDown = imu.roll < -45 || 45 < imu.roll;
+
+  if (
+    !state.flightPinInserted ||
+    state.detectFallDown ||
+    state.vehicleMode == VehicleMode::Stop ||
+    state.vehicleMode == VehicleMode::Completed
+  ) {
+    state.motorLeft = 0;
+    state.motorRight = 0;
+  }
+  motor.move(state.motorLeft, state.motorRight);
 
   if (state.requestMagCalibrate) {
     calibrateMag();
