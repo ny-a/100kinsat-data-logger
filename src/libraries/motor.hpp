@@ -40,6 +40,15 @@ Motor::Motor() {
 }
 
 void Motor::move(int pwm_left, int pwm_right) {
+  if (std::abs(pwm_left) <= VALUE_MIN && std::abs(pwm_right) <= VALUE_MIN && pwm_left != pwm_right) {
+    if ((0 < pwm_left && 0 < pwm_right) || (pwm_left < 0 && pwm_right < 0)) {
+      if (std::abs(pwm_left) < std::abs(pwm_right)) {
+        pwm_left = 0;
+      } else {
+        pwm_right = 0;
+      }
+    }
+  }
   // 左モータ
   if (pwm_left == 0) {
     digitalWrite(MOTOR_A[0], LOW);
@@ -48,7 +57,6 @@ void Motor::move(int pwm_left, int pwm_right) {
   } else {
     bool cw = pwm_left < 0;
     int value = std::min(std::abs(pwm_left), LEDC_VALUE_MAX);
-    // 値が小さすぎると動かない
     value = std::max(value, VALUE_MIN);
     digitalWrite(MOTOR_A[(int)!cw], LOW);
     digitalWrite(MOTOR_A[(int) cw], HIGH);
@@ -63,7 +71,6 @@ void Motor::move(int pwm_left, int pwm_right) {
   } else {
     bool cw = pwm_right < 0;
     int value = std::min(std::abs(pwm_right), LEDC_VALUE_MAX);
-    // 値が小さすぎると動かない
     value = std::max(value, VALUE_MIN);
     digitalWrite(MOTOR_B[(int)!cw], LOW);
     digitalWrite(MOTOR_B[(int) cw], HIGH);

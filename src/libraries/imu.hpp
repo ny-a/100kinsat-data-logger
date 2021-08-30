@@ -136,9 +136,6 @@ bool IMU::checkValue(int limit) {
 }
 
 void IMU::magCalibrateInitialize() {
-  mpu.setMagBias(0, 0, 0);
-  delay(10);
-
   state->magXMax = magX;
   state->magXMin = magX;
   state->magYMax = magY;
@@ -148,14 +145,14 @@ void IMU::magCalibrateInitialize() {
 }
 
 void IMU::magCalibrateApply(String& buffer) {
-  buffer += String("MPU9250,Calibrate,setMagBias(");
-  double magX = ((state->magXMax + state->magXMin) / 2);
+  buffer += String("Log,MPU9250Calibrate,setMagBias(");
+  double magX = mpu.getMagBiasX() + ((state->magXMax + state->magXMin) / 2);
   buffer += String(magX, 6);
   buffer += String(", ");
-  double magY = ((state->magYMax + state->magYMin) / 2);
+  double magY = mpu.getMagBiasY() + ((state->magYMax + state->magYMin) / 2);
   buffer += String(magY, 6);
   buffer += String(", ");
-  double magZ = ((state->magZMax + state->magZMin) / 2);
+  double magZ = mpu.getMagBiasZ() + ((state->magZMax + state->magZMin) / 2);
   buffer += String(magZ, 6);
   buffer += String(");\n");
 

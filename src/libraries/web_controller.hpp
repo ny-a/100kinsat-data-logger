@@ -73,7 +73,7 @@ WebController::WebController(const char * ssid, const char * password, State * s
       </form>\
     </p>\
     <p>\
-      <a href='/magCalibrate'>Start magCalibrate</a>\
+      <a href='/magCalibrate'>Do magCalibrate</a>\
     </p>\
     <p>\
       <a href='/stop'>Stop motor</a>\

@@ -3,7 +3,6 @@
 enum class VehicleMode {
   Mission,
   FollowYaw,
-  CalibrateMag,
   Stop,
   Completed,
 };
@@ -50,9 +49,10 @@ class State {
     int logFileNumber = 0;
     double yawDiffThreshold = 3.0;
     double gpsYawCompensationDiffLimit = 10.0;
-    int gpsCompensationInterval = 5000;
+    double gpsYawCompensationAverageDiffLimit = 5.0;
+    int gpsCompensationInterval = 10000;
     double gpsYawCompensationLimitAtOnce = 20.0;
-    double gpsCompensationFactor = 3.0;
+    double gpsCompensationFactor = 0.5;
 
     unsigned long lastGpsYawCompensation = 0;
     double gpsYawCompensationSum = 0.0;
@@ -62,6 +62,7 @@ class State {
     bool enableSdLog = true;
 
     bool rebootByUserRequest = false;
+    bool requestMagCalibrate = false;
 };
 
 State::State() {
@@ -80,9 +81,6 @@ void State::getLogString(String& buffer) {
     break;
   case VehicleMode::FollowYaw:
     buffer += "FollowYaw,";
-    break;
-  case VehicleMode::CalibrateMag:
-    buffer += "CalibrateMag,";
     break;
   case VehicleMode::Stop:
     buffer += "Stop,";
@@ -127,18 +125,15 @@ void State::getLogString(String& buffer) {
   buffer += String(logFileNumber);
   buffer += String(",");
   buffer += enableSdLog ? "Enabled" : "Disabled";
-
-  if (vehicleMode == VehicleMode::CalibrateMag) {
-    buffer += String(", ");
-    double magX = ((magXMax + magXMin) / 2);
-    buffer += String(magX, 6);
-    buffer += String(", ");
-    double magY = ((magYMax + magYMin) / 2);
-    buffer += String(magY, 6);
-    buffer += String(", ");
-    double magZ = ((magZMax + magZMin) / 2);
-    buffer += String(magZ, 6);
-  }
+  buffer += String(", ");
+  double magX = ((magXMax + magXMin) / 2);
+  buffer += String(magX, 6);
+  buffer += String(", ");
+  double magY = ((magYMax + magYMin) / 2);
+  buffer += String(magY, 6);
+  buffer += String(", ");
+  double magZ = ((magZMax + magZMin) / 2);
+  buffer += String(magZ, 6);
   buffer += String("\n");
 }
 
@@ -157,10 +152,8 @@ void State::checkYawForGpsCompensation() {
 
 void State::doGpsCompensation() {
   if (gpsCompensationInterval < millis() - lastGpsYawCompensation) {
-    if (gpsYawCompensationItems == 0) {
-      lastGpsYawCompensation = millis();
-    } else {
-      latestGpsDiff = gpsYawCompensationSum / (gpsYawCompensationItems * gpsCompensationFactor);
+    if (gpsYawCompensationItems != 0) {
+      latestGpsDiff = gpsYawCompensationSum * gpsCompensationFactor / gpsYawCompensationItems;
       double clippedGpsDiff = latestGpsDiff;
       if (clippedGpsDiff < -gpsYawCompensationLimitAtOnce) {
         clippedGpsDiff = -gpsYawCompensationLimitAtOnce;
@@ -168,11 +161,19 @@ void State::doGpsCompensation() {
         clippedGpsDiff = gpsYawCompensationLimitAtOnce;
       }
       northYaw = clipYaw(northYaw + clippedGpsDiff);
-      lastGpsYawCompensation = millis();
-      gpsYawCompensationSum = 0.0;
-      gpsYawCompensationItems = 0;
     }
+    lastGpsYawCompensation = millis();
+    gpsYawCompensationSum = 0.0;
+    gpsYawCompensationItems = 0;
   } else {
+    if (gpsYawCompensationItems != 0) {
+      double average = gpsYawCompensationSum / gpsYawCompensationItems;
+      if (gpsYawCompensationAverageDiffLimit < std::abs(average - gpsYawDiff)) {
+        lastGpsYawCompensation = millis();
+        gpsYawCompensationSum = 0.0;
+        gpsYawCompensationItems = 0;
+      }
+    }
     gpsYawCompensationSum += gpsYawDiff;
     gpsYawCompensationItems++;
   }
@@ -225,7 +226,7 @@ void State::copyNorthYaw(void * pvParameters) {
 void State::magCalibrate(void * pvParameters) {
   State ** args = (State **) pvParameters;
   State * thisPointer = args[0];
-  thisPointer->vehicleMode = VehicleMode::CalibrateMag;
+  thisPointer->requestMagCalibrate = true;
   while (true) {
     delay(1);
   }

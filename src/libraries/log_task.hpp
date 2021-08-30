@@ -108,14 +108,17 @@ void LogTask::loggerTask(void *pvParameters) {
       }
 
       #if ENABLE_WEB_SERVER == true
-      if (buffer[0] == 'S') {
+      if (buffer[0] == 'M') {
         webController.setValue(0, buffer);
       }
       if (buffer[0] == 'G') {
         webController.setValue(1, buffer);
       }
-      if (buffer[0] == 'M') {
+      if (buffer[0] == 'S') {
         webController.setValue(2, buffer);
+      }
+      if (buffer[0] == 'L') {
+        webController.setValue(3, buffer);
       }
       #endif
     } else {

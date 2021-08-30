@@ -35,9 +35,6 @@ void setup() {
   // imu.mpu.setMagBias(0, 0, 0);
   // imu.mpu.setMagScale(1, 1, 1);
 
-  // Madgwick filterを使う
-  imu.selectMadgwickFilter();
-
   if (!logTask.setupTask()) {
     logTask.restartOnError(3);
   }
@@ -56,6 +53,7 @@ void setup() {
     logTask.restartOnError(5);
   }
   logTask.sendToLoggerTask("State,IMU OK.\n", false);
+  imu.magCalibrateInitialize();
 
   if (!logTask.checkSdHealth()) {
     Serial.println("SD initialization failed.");
@@ -102,13 +100,20 @@ void loop() {
   const unsigned long ms = 100;
   unsigned long start = millis();
 
+  double yawSum = 0.0;
+  int yawItems = 0;
+
   while (millis() - start < ms) {
     gps.encode();
 
-    if (imu.update() && !REDUCE_MPU_LOG) {
-      String buffer = "";
-      imu.getLogString(buffer);
-      logTask.sendToLoggerTask(buffer, true);
+    if (imu.update()) {
+      if (!REDUCE_MPU_LOG) {
+        String buffer = "";
+        imu.getLogString(buffer);
+        logTask.sendToLoggerTask(buffer, true);
+      }
+      yawSum += imu.yaw;
+      yawItems++;
     }
 
     if (canSatIO.isButtonJustPressed()) {
@@ -118,6 +123,7 @@ void loop() {
       logTask.closeFile();
       createNewLogFile();
 
+      imu.magCalibrateInitialize();
       state.vehicleMode = VehicleMode::Mission;
 
       break;
@@ -183,13 +189,17 @@ void loop() {
     }
     state.doGpsCompensation();
   }
-  state.gpsYawDiff = state.clipYawDiff(imu.yaw - gps.course);
+  double yawAverage = imu.yaw;
+  if (yawItems != 0) {
+    yawAverage = yawSum / yawItems;
+  }
+  state.gpsYawDiff = state.clipYawDiff(yawAverage - gps.course);
   state.goalDistance = gps.distanceToGoal;
   buffer = "";
   state.getLogString(buffer);
   logTask.sendToLoggerTask(buffer, false);
 
-  if (state.vehicleMode == VehicleMode::CalibrateMag) {
+  if (state.requestMagCalibrate) {
     calibrateMag();
   }
 }
@@ -221,24 +231,8 @@ void createNewLogFile() {
 }
 
 void calibrateMag() {
-  motor.stop();
-  logTask.sendToLoggerTask("State,CalibrateMag\n", false);
-  imu.magCalibrateInitialize();
-  unsigned long lastLog = 0;
-  while (!canSatIO.isButtonJustPressed()) {
-    imu.update();
-    if (100 < millis() - lastLog) {
-      lastLog = millis();
-      String buffer = "";
-      imu.getLogString(buffer);
-      logTask.sendToLoggerTask(buffer, true);
-      buffer = "";
-      state.getLogString(buffer);
-      logTask.sendToLoggerTask(buffer, true);
-    }
-  }
   String buffer = "";
   imu.magCalibrateApply(buffer);
-  logTask.sendToLoggerTask(buffer, true);
-  state.vehicleMode = VehicleMode::Mission;
+  logTask.sendToLoggerTask(buffer, false);
+  state.requestMagCalibrate = false;
 }
