@@ -44,7 +44,7 @@ IMU::IMU(State * state) {
 // setup 内でする必要がありそう
 void IMU::setup() {
   Wire.begin();
-  delay(1000);
+  delay(2000);
 
   mpu.setup(0x68);
 }
