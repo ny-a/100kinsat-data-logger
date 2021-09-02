@@ -153,7 +153,7 @@ void loop() {
         state.arrivedGoalAt = millis();
       } else if (state.missionCompleteDecisionDuration * 1000 < millis() - state.arrivedGoalAt) {
         state.vehicleMode = VehicleMode::Completed;
-        logTask.sendToLoggerTask("State,Mission Completed.\n", false);
+        logTask.sendToLoggerTask("Log,Mission Completed.\n", false);
       }
     } else if (gps.distanceToGoal < 1.0) {
       state.arrivedGoalAt = 0;
