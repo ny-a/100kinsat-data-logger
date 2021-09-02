@@ -173,6 +173,7 @@ void loop() {
   if (yawItems != 0) {
     yawAverage = yawSum / yawItems;
   }
+  state.yawAverage = yawAverage;
   state.gpsYawDiff = state.clipYawDiff(yawAverage - gps.course);
   state.goalDistance = gps.distanceToGoal;
   buffer = "";
