@@ -29,6 +29,8 @@ class State {
     double goalDistance = 0.0;
     double goalLat = 0.0;
     double goalLong = 0.0;
+    double lat = 0.0;
+    double lng = 0.0;
     double targetYaw = 0.0;
     double northYaw = 0.0;
     double gpsYawDiff = 0.0;
@@ -71,7 +73,7 @@ State::State() {
 }
 
 void State::getHeader(String& buffer) {
-  buffer += "State,VehicleMode,yawDiff,gpsYawDiff,goalDistance,goalLat,goalLong,targetYaw,northYaw,GPSCItems,lastGPSC,motorLeft,motorRight,curentSpeed,flightPin,fallDown,millis,logFileNumber,sdLog,magX,magY,magZ\n";
+  buffer += "State,VehicleMode,yawDiff,gpsYawDiff,goalDistance,goalLat,goalLong,lat,lng,targetYaw,northYaw,GPSCItems,lastGPSC,motorLeft,motorRight,curentSpeed,flightPin,fallDown,millis,logFileNumber,sdLog,magX,magY,magZ\n";
 }
 
 void State::getLogString(String& buffer) {
@@ -103,6 +105,10 @@ void State::getLogString(String& buffer) {
   buffer += String(goalLat, 6);
   buffer += String(",");
   buffer += String(goalLong, 6);
+  buffer += String(",");
+  buffer += String(lat, 6);
+  buffer += String(",");
+  buffer += String(lng, 6);
   buffer += String(",");
   buffer += String(targetYaw, 6);
   buffer += String(",");

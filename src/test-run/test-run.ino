@@ -139,6 +139,8 @@ void loop() {
   String buffer = "";
   double previousGpsYaw = gps.course;
   gps.readValues(buffer);
+  state.lat = gps.lat;
+  state.lng = gps.lng;
   if (ENABLE_GPS_LOG) {
     logTask.sendToLoggerTask(buffer, false);
   }

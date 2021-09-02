@@ -23,6 +23,9 @@ class GPS {
     double speedKmph = 0.0;
     double course = 0.0;
 
+    double lat = 0.0;
+    double lng = 0.0;
+
     TinyGPSPlus gps;
 
   private:
@@ -152,12 +155,14 @@ void GPS::readValues(String& buffer) {
 
   locationIsValid = gps.location.isValid();
   if (locationIsValid) {
-    buffer += String(gps.location.lat(), 6);
+    lat = gps.location.lat();
+    buffer += String(lat, 6);
   }
   buffer += String(",");
 
   if (locationIsValid) {
-    buffer += String(gps.location.lng(), 6);
+    lng = gps.location.lng();
+    buffer += String(lng, 6);
   }
   buffer += String(",");
 
