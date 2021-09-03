@@ -176,9 +176,6 @@ void loop() {
   state.yawAverage = yawAverage;
   state.gpsYawDiff = state.clipYawDiff(yawAverage - gps.course);
   state.goalDistance = gps.distanceToGoal;
-  buffer = "";
-  state.getLogString(buffer);
-  logTask.sendToLoggerTask(buffer, false);
 
   // state.targetYaw に向ける
   state.yawDiff = state.clipYawDiff(state.targetYaw - yawAverage);
@@ -210,6 +207,9 @@ void loop() {
     state.motorRight = 0;
   }
   motor.move(state.motorLeft, state.motorRight);
+  buffer = "";
+  state.getLogString(buffer);
+  logTask.sendToLoggerTask(buffer, false);
 
   if (state.requestMagCalibrate) {
     calibrateMag();
