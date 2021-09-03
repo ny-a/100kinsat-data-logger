@@ -151,6 +151,7 @@ void loop() {
       // 終了条件
       if (state.arrivedGoalAt == 0) {
         state.arrivedGoalAt = millis();
+        logTask.sendToLoggerTask("Control,Arrived at a goal. Wait for missionCompleteDecisionDuration," + String(state.missionCompleteDecisionDuration) + "\n", false);
       } else if (state.missionCompleteDecisionDuration * 1000 < millis() - state.arrivedGoalAt) {
         state.vehicleMode = VehicleMode::Completed;
         logTask.sendToLoggerTask("Log,Mission Completed.\n", false);
@@ -158,9 +159,11 @@ void loop() {
     } else if (gps.distanceToGoal < 1.0) {
       state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed * 0.33;
+        logTask.sendToLoggerTask("Control,Changed speed ratio to 0.33.\n", false);
     } else if (gps.distanceToGoal < 3.0) {
       state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed * 0.66;
+        logTask.sendToLoggerTask("Control,Changed speed ratio to 0.66.\n", false);
     } else {
       state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed;
@@ -183,10 +186,12 @@ void loop() {
     canSatIO.setLEDOff();
     state.motorLeft = state.currentSpeed - std::abs(state.yawDiff) * 2;
     state.motorRight = state.currentSpeed;
+    logTask.sendToLoggerTask("Control,Left motor control," + String(state.yawDiff, 6) + "," + String(-static_cast<int>(std::abs(state.yawDiff) * 2)) + "\n", false);
   } else if (state.yawDiffThreshold < state.yawDiff) {
     canSatIO.setLEDOff();
     state.motorLeft = state.currentSpeed;
     state.motorRight = state.currentSpeed - std::abs(state.yawDiff) * 2;
+    logTask.sendToLoggerTask("Control,Right motor control," + String(state.yawDiff, 6) + "," + String(-static_cast<int>(std::abs(state.yawDiff) * 2)) + "\n", false);
   } else {
     canSatIO.setLEDOn();
     state.motorLeft = state.currentSpeed;
