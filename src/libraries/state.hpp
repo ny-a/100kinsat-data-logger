@@ -57,6 +57,7 @@ class State {
     int gpsCompensationInterval = 10000;
     double gpsYawCompensationLimitAtOnce = 10.0;
     double gpsCompensationFactor = 0.5;
+    double gpsCompensationHdopLimit = 1.05;
     int missionCompleteDecisionDuration = 15;
 
     unsigned long lastGpsYawCompensation = 0;

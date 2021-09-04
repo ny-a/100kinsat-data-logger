@@ -168,7 +168,7 @@ void loop() {
       state.arrivedGoalAt = 0;
       state.currentSpeed = state.defaultSpeed;
     }
-    if (previousGpsYaw != gps.course && 0.3 < gps.speedKmph) {
+    if (previousGpsYaw != gps.course && 0.3 < gps.speedKmph && gps.hdop <= state.gpsCompensationHdopLimit) {
       state.doGpsCompensation();
     }
   }
