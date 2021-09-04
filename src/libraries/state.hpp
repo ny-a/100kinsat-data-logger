@@ -51,6 +51,7 @@ class State {
     bool detectFallDown = false;
     int logFileNumber = 0;
     double yawDiffThreshold = 3.0;
+    double yawDiffTurnThreshold = 15.0;
     double gpsYawCompensationDiffLimit = 10.0;
     double gpsYawCompensationAverageDiffLimit = 5.0;
     int gpsCompensationInterval = 10000;

@@ -184,14 +184,26 @@ void loop() {
   state.yawDiff = state.clipYawDiff(state.targetYaw - yawAverage);
   if (state.yawDiff < -state.yawDiffThreshold) {
     canSatIO.setLEDOff();
-    state.motorLeft = state.currentSpeed - std::abs(state.yawDiff) * 2;
-    state.motorRight = state.currentSpeed;
-    logTask.sendToLoggerTask("Control,Left motor control," + String(state.yawDiff, 6) + "," + String(-static_cast<int>(std::abs(state.yawDiff) * 2)) + "\n", false);
+    if (state.yawDiff < -state.yawDiffTurnThreshold) {
+      state.motorLeft = -state.currentSpeed;
+      state.motorRight = state.currentSpeed;
+      logTask.sendToLoggerTask("Control,Motor Control,turn ccw," + String(state.yawDiff, 6) + "\n", false);
+    } else {
+      state.motorLeft = state.currentSpeed - std::abs(state.yawDiff) * 2;
+      state.motorRight = state.currentSpeed;
+      logTask.sendToLoggerTask("Control,Left motor control," + String(state.yawDiff, 6) + "," + String(-static_cast<int>(std::abs(state.yawDiff) * 2)) + "\n", false);
+    }
   } else if (state.yawDiffThreshold < state.yawDiff) {
     canSatIO.setLEDOff();
-    state.motorLeft = state.currentSpeed;
-    state.motorRight = state.currentSpeed - std::abs(state.yawDiff) * 2;
-    logTask.sendToLoggerTask("Control,Right motor control," + String(state.yawDiff, 6) + "," + String(-static_cast<int>(std::abs(state.yawDiff) * 2)) + "\n", false);
+    if (state.yawDiffTurnThreshold < state.yawDiff) {
+      state.motorLeft = state.currentSpeed;
+      state.motorRight = -state.currentSpeed;
+      logTask.sendToLoggerTask("Control,Motor Control,turn cw," + String(state.yawDiff, 6) + "\n", false);
+    } else {
+      state.motorLeft = state.currentSpeed;
+      state.motorRight = state.currentSpeed - std::abs(state.yawDiff) * 2;
+      logTask.sendToLoggerTask("Control,Right motor control," + String(state.yawDiff, 6) + "," + String(-static_cast<int>(std::abs(state.yawDiff) * 2)) + "\n", false);
+    }
   } else {
     canSatIO.setLEDOn();
     state.motorLeft = state.currentSpeed;
