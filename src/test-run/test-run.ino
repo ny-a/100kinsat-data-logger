@@ -27,12 +27,13 @@ void setup() {
   imu.setup();
 
   // ゴールの緯度経度
-  state.setGoal(31.5681451, 130.5434225);
+  state.setGoal(35.751380, 139.873006);
+  state.setPlannedStart(35.750732, 139.873890);
 
   // キャリブレーション結果に値を変更してください
-  // imu.mpu.setAccBias(0, 0, 0);
-  // imu.mpu.setGyroBias(0, 0, 0);
-  // imu.mpu.setMagBias(0, 0, 0);
+  imu.mpu.setAccBias(-765.75, -131.07, -222.66);
+  imu.mpu.setGyroBias(0.96, -3.33, -2.14);
+  imu.mpu.setMagBias(-869.968079, 689.569855, 222.993191);
   // imu.mpu.setMagScale(1, 1, 1);
 
   if (!logTask.setupTask()) {
@@ -61,6 +62,7 @@ void setup() {
   }
 
   logTask.sendToLoggerTask("State,Wait for GPS fix.\n", false);
+  canSatIO.setLEDOn();
   state.enableSdLog = false;
   state.vehicleMode = VehicleMode::Stop;
   for (unsigned long start = millis(), lastLog = 0; millis() - start < 2 * 60 * 1000;) {
@@ -70,8 +72,8 @@ void setup() {
       String buffer = "";
       gps.readValues(buffer);
       logTask.sendToLoggerTask(buffer, false);
-      if (gps.locationIsValid) {
-        logTask.sendToLoggerTask("State,GPS location is valid.\n", false);
+      if (gps.locationIsValid && gps.hdop != 0.0 && gps.hdop <= state.gpsCompensationHdopLimit) {
+        logTask.sendToLoggerTask("State,GPS signal is fine.\n", false);
         break;
       }
       if (state.vehicleMode != VehicleMode::Stop) {
@@ -80,12 +82,60 @@ void setup() {
       }
     }
   }
+  state.setGpsOffsetByPlannedStart(gps.lat, gps.lng);
+  logTask.sendToLoggerTask("Log,gps offset," + String(state.latOffset, 6) + "," + String(state.lngOffset, 6) + "," + String(gps.lat, 6) + "," + String(gps.lng, 6)  +"\n", false);
+
+  findNearestSubgoal();
+  canSatIO.setLEDOff();
   state.enableSdLog = true;
   if (state.vehicleMode == VehicleMode::Stop) {
     state.vehicleMode = VehicleMode::Mission;
   }
 
   logTask.sendToLoggerTask("State,setup ended.\n", false);
+}
+
+void findNearestSubgoal() {
+  int minimumIndex = 0;
+  state.startDistance = TinyGPSPlus::distanceBetween(
+    state.plannedStartLat,
+    state.plannedStartLng,
+    state.goalLat,
+    state.goalLong
+  );
+  state.subgoalIndexMax = static_cast<int>(state.startDistance);
+  double minimumDistance = TinyGPSPlus::distanceBetween(
+    gps.lat,
+    gps.lng,
+    state.plannedStartLat,
+    state.plannedStartLng
+  );
+  double latDiff = state.goalLat - state.plannedStartLat;
+  double lngDiff = state.goalLong - state.plannedStartLng;
+  for (int i = 0; i <= state.subgoalIndexMax; i++) {
+    double ratio = (static_cast<double>(i) / static_cast<double>(state.subgoalIndexMax));
+    double distance = TinyGPSPlus::distanceBetween(
+      gps.lat,
+      gps.lng,
+      state.plannedStartLat + (latDiff * ratio),
+      state.plannedStartLng + (lngDiff * ratio)
+    );
+    if (distance < minimumDistance) {
+      minimumIndex = i;
+      minimumDistance = distance;
+    }
+  }
+
+  state.subgoalIndex = minimumIndex;
+  calculateSubgoal();
+}
+
+void calculateSubgoal() {
+  double latDiff = state.goalLat - state.plannedStartLat;
+  double lngDiff = state.goalLong - state.plannedStartLng;
+  double ratio = (static_cast<double>(state.subgoalIndex) / static_cast<double>(state.subgoalIndexMax));
+  state.subgoalLat = state.plannedStartLat + (latDiff * ratio);
+  state.subgoalLng = state.plannedStartLng + (lngDiff * ratio);
 }
 
 void loop() {
@@ -170,6 +220,40 @@ void loop() {
     }
     if (previousGpsYaw != gps.course && 0.3 < gps.speedKmph && gps.hdop <= state.gpsCompensationHdopLimit) {
       state.doGpsCompensation();
+    }
+
+    if (state.subgoalIndex != state.subgoalIndexMax) {
+      double distanceToSubgoal = TinyGPSPlus::distanceBetween(
+        gps.lat,
+        gps.lng,
+        state.subgoalLat,
+        state.subgoalLng
+      );
+      if (distanceToSubgoal < state.subgoalIncrementThreshold) {
+        state.subgoalIndex++;
+        calculateSubgoal();
+      }
+
+      if (state.subgoalFallbackThreshold < distanceToSubgoal) {
+        findNearestSubgoal();
+      }
+
+      double courseToSubgoal = TinyGPSPlus::courseTo(
+        gps.lat,
+        gps.lng,
+        state.subgoalLat,
+        state.subgoalLng
+      );
+      state.targetYaw = courseToSubgoal;
+
+      distanceToSubgoal = TinyGPSPlus::distanceBetween(
+        gps.lat,
+        gps.lng,
+        state.subgoalLat,
+        state.subgoalLng
+      );
+
+      logTask.sendToLoggerTask("Log,subgoal," + String(state.subgoalLat, 6) + "," + String(state.subgoalLng, 6) + "," + String(distanceToSubgoal, 6)  +"\n", false);
     }
   }
   double yawAverage = imu.yaw;

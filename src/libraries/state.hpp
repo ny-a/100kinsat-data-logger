@@ -13,6 +13,8 @@ class State {
     void getHeader(String& buffer);
     void getLogString(String& buffer);
     void setGoal(double lat, double lng);
+    void setPlannedStart(double lat, double lng);
+    void setGpsOffsetByPlannedStart(double lat, double lng);
     void checkYawForGpsCompensation();
     void doGpsCompensation();
     static void userRequestReboot(void * pvParameters);
@@ -51,14 +53,28 @@ class State {
     bool detectFallDown = false;
     int logFileNumber = 0;
     double yawDiffThreshold = 3.0;
-    double yawDiffTurnThreshold = 15.0;
+    double yawDiffTurnThreshold = 20.0;
     double gpsYawCompensationDiffLimit = 10.0;
     double gpsYawCompensationAverageDiffLimit = 5.0;
     int gpsCompensationInterval = 10000;
     double gpsYawCompensationLimitAtOnce = 10.0;
-    double gpsCompensationFactor = 0.5;
+    double gpsCompensationFactor = 0;
     double gpsCompensationHdopLimit = 1.05;
     int missionCompleteDecisionDuration = 15;
+
+    double plannedStartLat = 0.0;
+    double plannedStartLng = 0.0;
+    double startDistance = 0.0;
+    int subgoalIndex = 0;
+    int subgoalIndexMax = 0;
+    double subgoalLat = 0.0;
+    double subgoalLng = 0.0;
+
+    double latOffset = 0.0;
+    double lngOffset = 0.0;
+
+    double subgoalIncrementThreshold = 0.5;
+    double subgoalFallbackThreshold = 4.0;
 
     unsigned long lastGpsYawCompensation = 0;
     double gpsYawCompensationSum = 0.0;
@@ -76,7 +92,7 @@ State::State() {
 }
 
 void State::getHeader(String& buffer) {
-  buffer += "State,VehicleMode,yawDiff,gpsYawDiff,goalDistance,goalLat,goalLong,lat,lng,yawAverage,targetYaw,northYaw,GPSCItems,lastGPSC,motorLeft,motorRight,curentSpeed,flightPin,fallDown,millis,logFileNumber,sdLog,magX,magY,magZ\n";
+  buffer += "State,VehicleMode,yawDiff,gpsYawDiff,goalDistance,goalLat,goalLong,lat,lng,yawAverage,targetYaw,northYaw,GPSCItems,lastGPSC,motorLeft,motorRight,curentSpeed,flightPin,fallDown,millis,logFileNumber,sdLog,magX,magY,magZ,subgoalIndex\n";
 }
 
 void State::getLogString(String& buffer) {
@@ -138,21 +154,33 @@ void State::getLogString(String& buffer) {
   buffer += String(logFileNumber);
   buffer += String(",");
   buffer += enableSdLog ? "Enabled" : "Disabled";
-  buffer += String(", ");
+  buffer += String(",");
   double magX = ((magXMax + magXMin) / 2);
   buffer += String(magX, 6);
-  buffer += String(", ");
+  buffer += String(",");
   double magY = ((magYMax + magYMin) / 2);
   buffer += String(magY, 6);
-  buffer += String(", ");
+  buffer += String(",");
   double magZ = ((magZMax + magZMin) / 2);
   buffer += String(magZ, 6);
+  buffer += String(",");
+  buffer += String(subgoalIndex);
   buffer += String("\n");
 }
 
 void State::setGoal(double lat, double lng) {
   this->goalLat = lat;
   this->goalLong = lng;
+}
+
+void State::setPlannedStart(double lat, double lng) {
+  this->plannedStartLat = lat;
+  this->plannedStartLng = lng;
+}
+
+void State::setGpsOffsetByPlannedStart(double lat, double lng) {
+  this->latOffset = this->plannedStartLat - lat;
+  this->lngOffset = this->plannedStartLng - lng;
 }
 
 void State::checkYawForGpsCompensation() {

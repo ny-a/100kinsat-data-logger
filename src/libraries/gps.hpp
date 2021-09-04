@@ -155,13 +155,13 @@ void GPS::readValues(String& buffer) {
 
   locationIsValid = gps.location.isValid();
   if (locationIsValid) {
-    lat = gps.location.lat();
+    lat = gps.location.lat() + state->latOffset;
     buffer += String(lat, 6);
   }
   buffer += String(",");
 
   if (locationIsValid) {
-    lng = gps.location.lng();
+    lng = gps.location.lng() + state->lngOffset;
     buffer += String(lng, 6);
   }
   buffer += String(",");
@@ -241,8 +241,8 @@ void GPS::readValues(String& buffer) {
 
   distanceToGoal =
     TinyGPSPlus::distanceBetween(
-      gps.location.lat(),
-      gps.location.lng(),
+      lat,
+      lng,
       state->goalLat,
       state->goalLong);
 
@@ -253,8 +253,8 @@ void GPS::readValues(String& buffer) {
 
   courseToGoal =
     TinyGPSPlus::courseTo(
-      gps.location.lat(),
-      gps.location.lng(),
+      lat,
+      lng,
       state->goalLat,
       state->goalLong);
 
